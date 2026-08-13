@@ -157,6 +157,51 @@ def check_requires_exist() -> None:
             )
 
 
+# ESP-IDF headers whose component has to be named in REQUIRES. Only the ones
+# this project actually uses: a missing entry here costs a CI round trip, and
+# that is exactly what this table exists to prevent.
+IDF_HEADER_OWNERS = {
+    "esp_timer.h": "esp_timer",
+    "esp_chip_info.h": "esp_hw_support",
+    "esp_mac.h": "esp_hw_support",
+    "esp_random.h": "esp_hw_support",
+    "esp_app_desc.h": "esp_app_format",
+    "esp_ota_ops.h": "app_update",   # NOT esp_ota_ops; no such component
+    "esp_partition.h": "esp_partition",
+    "esp_console.h": "console",
+    "esp_http_server.h": "esp_http_server",
+    "esp_wifi.h": "esp_wifi",
+    "esp_netif.h": "esp_netif",
+    "esp_event.h": "esp_event",
+    "esp_system.h": "esp_system",
+    "esp_restart.h": "esp_system",
+    "mqtt_client.h": "mqtt",
+    "cJSON.h": "json",
+    "nvs.h": "nvs_flash",
+    "nvs_flash.h": "nvs_flash",
+    "driver/gpio.h": "driver",
+    "driver/spi_master.h": "driver",
+    "driver/i2c_master.h": "driver",
+}
+
+
+def check_idf_header_requires() -> None:
+    requires = component_requires()
+    for component, deps in requires.items():
+        base = ROOT / "main" if component == "main" else COMPONENTS / component
+        for source in list(base.rglob("*.c")) + list(base.rglob("*.h")):
+            if "build" in source.parts:
+                continue
+            for include in re.findall(r"#include\s+<([\w./]+\.h)>", source.read_text()):
+                owner = IDF_HEADER_OWNERS.get(include)
+                if owner is None or owner in deps:
+                    continue
+                problems.append(
+                    f"{source.relative_to(ROOT)} includes <{include}> "
+                    f"but '{component}' does not require '{owner}'"
+                )
+
+
 def check_component_dependencies() -> None:
     requires = component_requires()
     owners = public_headers()
@@ -202,6 +247,7 @@ DEFAULTS_USED = set(sdkconfig_defaults())
 check_config_symbols()
 check_sdkconfig_defaults()
 check_requires_exist()
+check_idf_header_requires()
 check_component_dependencies()
 check_embedded_symbols()
 

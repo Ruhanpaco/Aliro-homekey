@@ -36,6 +36,11 @@ CONFIG_MBEDTLS_SHA512_C=n
 
 # --- Configuration web service -------------------------------------------
 # The UI is one embedded HTML file; the API is JSON over esp_http_server.
+# WebSocket support is off by default in ESP-IDF, and web_server.c registers a
+# websocket route unconditionally (httpd_uri_t.is_websocket only exists when
+# this is on). Set here rather than redeclared in a Kconfig of ours, which
+# would shadow the esp_http_server symbol.
+CONFIG_HTTPD_WS_SUPPORT=y
 CONFIG_HTTPD_MAX_REQ_HDR_LEN=1024
 CONFIG_HTTPD_MAX_URI_LEN=512
 

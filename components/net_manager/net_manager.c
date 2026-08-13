@@ -102,13 +102,13 @@ static void start_setup_ap(void)
     wifi_config_t wifi_cfg = {0};
     char ssid[33];
     ap_ssid(ssid, sizeof(ssid));
-    snprintf((char *)wifi_cfg.ap.ssid, sizeof(wifi_cfg.ap.ssid), "%s", ssid);
+    strlcpy((char *)wifi_cfg.ap.ssid, ssid, sizeof(wifi_cfg.ap.ssid));
     wifi_cfg.ap.ssid_len = strlen(ssid);
     wifi_cfg.ap.max_connection = 4;
     wifi_cfg.ap.channel = 1;
 
     if (strlen(s_net.cfg.ap_password) >= 8) {
-        snprintf((char *)wifi_cfg.ap.password, sizeof(wifi_cfg.ap.password), "%s", s_net.cfg.ap_password);
+        strlcpy((char *)wifi_cfg.ap.password, s_net.cfg.ap_password, sizeof(wifi_cfg.ap.password));
         wifi_cfg.ap.authmode = WIFI_AUTH_WPA2_PSK;
     } else {
         wifi_cfg.ap.authmode = WIFI_AUTH_OPEN;
@@ -140,8 +140,11 @@ static void start_sta(void)
     }
 
     wifi_config_t wifi_cfg = {0};
-    snprintf((char *)wifi_cfg.sta.ssid, sizeof(wifi_cfg.sta.ssid), "%s", s_net.cfg.ssid);
-    snprintf((char *)wifi_cfg.sta.password, sizeof(wifi_cfg.sta.password), "%s", s_net.cfg.password);
+    /* strlcpy, not snprintf: an SSID is 32 bytes and our buffer is 33, so
+     * GCC rightly warns that "%s" may truncate. Truncating is the intended
+     * behaviour here, and strlcpy says so. */
+    strlcpy((char *)wifi_cfg.sta.ssid, s_net.cfg.ssid, sizeof(wifi_cfg.sta.ssid));
+    strlcpy((char *)wifi_cfg.sta.password, s_net.cfg.password, sizeof(wifi_cfg.sta.password));
 
     snprintf(s_net.status.ssid, sizeof(s_net.status.ssid), "%s", s_net.cfg.ssid);
     s_net.status.mode = NET_MODE_STA;
