@@ -61,10 +61,23 @@ Adapted code lives in:
 - `components/web_server/web_server.c` — the general shape of the route table
   and the HomeKey-style JSON response envelope.
 
+## saadeghi/daisyUI
+
+- Project: https://github.com/saadeghi/daisyui
+- Copyright (c) 2020 Pouya Saadeghi
+- Licence: MIT
+- Used as: the design language of the configuration UI. HomeKey-ESP32 builds
+  its UI with Tailwind + daisyUI on the `dracula` and `autumn` themes;
+  firmware cannot ship a bundler, so `components/web_server/web/index.html`
+  reproduces the daisyUI component classes it uses by hand and copies the
+  theme token values (`--color-base-100`, `--color-primary`, …) verbatim from
+  daisyUI's own `dracula.css` and `autumn.css`. No daisyUI source file is
+  vendored, but the class names and colour values are its work.
+
 ## kormax/aliro
 
 - Project: https://github.com/kormax/aliro
-- Copyright: Kamil Oracz (kormax)
+- Copyright: kormax
 - Licence: none declared upstream (research notes only; no `LICENSE` file)
 - Used as: a reference for understanding the Aliro protocol — APDUs, AIDs,
   key derivation, wallet behaviour. No code from this project is copied into
@@ -79,7 +92,7 @@ against and the third-party libraries ESP-IDF bundles with them:
 
 | Library / component | Role here | Licence |
 | --- | --- | --- |
-| [ESP-IDF](https://github.com/espressif/esp-idf) | framework; `esp_http_server`, `nvs_flash`, `esp_wifi`, `esp_netif`, `esp_event`, `esp_partition`, `esp_ota_ops`, `esp_app_format`, `esp_hw_support`, `driver`, `esp_timer`, `soc`, `esp_mac` | Apache-2.0 |
+| [ESP-IDF](https://github.com/espressif/esp-idf) | framework; `esp_http_server`, `nvs_flash`, `esp_wifi`, `esp_netif`, `esp_event`, `esp_app_format`, `esp_hw_support`, `driver`, `esp_timer`, `soc`, `esp_mac` | Apache-2.0 |
 | [mbedTLS](https://github.com/Mbed-TLS/mbedtls) | P-256 ECDH/ECDSA, AES-GCM, HKDF-SHA256, PEM parsing for the Aliro transaction | Apache-2.0 |
 | [FreeRTOS](https://github.com/FreeRTOS/FreeRTOS-Kernel) | reader task, mutexes, queues (with Espressif's SMP port) | MIT |
 | [lwIP](https://savannah.nongnu.org/projects/lwip/) | TCP/IP stack, sockets, DNS | BSD-3-Clause |

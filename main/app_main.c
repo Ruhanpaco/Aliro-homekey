@@ -15,6 +15,7 @@
 #include "mqtt_manager.h"
 #include "net_manager.h"
 #include "nfc_transport.h"
+#include "serial_console.h"
 #include "web_server.h"
 
 #include <esp_err.h>
@@ -103,6 +104,17 @@ void app_main(void)
         .unlock = access_control_unlock,
     };
     ESP_ERROR_CHECK_WITHOUT_ABORT(web_server_start(&hooks));
+
+    /* Last, so its prompt lands after the boot log rather than in the middle
+     * of it. Works with no network at all, which is the state a board is in
+     * the first time it is powered up. */
+    const serial_console_hooks_t console_hooks = {
+        .credential_count = access_control_credential_count,
+        .transport_name = transport_name,
+        .mqtt_enabled = mqtt_manager_is_enabled,
+        .mqtt_connected = mqtt_manager_is_connected,
+    };
+    ESP_ERROR_CHECK_WITHOUT_ABORT(serial_console_start(&console_hooks));
 
     ESP_LOGI(k_tag, "ready: %u credential(s), transport '%s'", (unsigned)access_control_credential_count(),
              transport_name());

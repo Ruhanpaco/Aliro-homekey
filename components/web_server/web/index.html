@@ -884,6 +884,10 @@ function route() {
   if (page === "logs") startLogs(); else stopLogs();
 }
 window.addEventListener("hashchange", route);
+// Form-state restoration runs after this script and re-opens the drawer, and
+// it ignores autocomplete=off on a reload. pageshow fires after it, and after
+// a bfcache restore, so this is the one place that reliably wins.
+window.addEventListener("pageshow", () => { $("main-content-drawer").checked = false; });
 
 /* --- api --------------------------------------------------------------- */
 

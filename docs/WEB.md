@@ -26,6 +26,8 @@ phone joining the network pops the page up by itself.
 | `POST` | `/api/config` | Validate and persist. Body is a partial config; missing keys keep their value |
 | `POST` | `/api/config/reset` | Erase the stored configuration |
 | `POST` | `/api/reboot` | Restart so a saved configuration takes effect |
+| `GET` | `/api/logs` | Log lines newer than `?since=<id>`, from a 64-line ring buffer |
+| `POST` | `/api/unlock` | Drive the lock output now, as a granted tap would |
 
 `POST /api/config` returns `400` with `{"ok":false,"error":"..."}` and changes
 nothing when validation fails. The UI shows that string verbatim, so the
@@ -42,19 +44,33 @@ Two rules worth knowing:
 
 ## Pages
 
-Five routes, hash-based, mirroring the sidebar layout HomeKey-ESP32 uses:
+The same shell HomeKey-ESP32 uses — a `drawer lg:drawer-open` sidebar that
+collapses to a navbar and hamburger on mobile — and the same page names, minus
+the ones this project has nothing to put in:
 
-| Route | What lives there |
-| --- | --- |
-| `#/overview` | Lock state, transport, credential count, MQTT and network status. Polled every 5 s. No fields, so no save bar. |
-| `#/hardware` | NFC chip, bus, pins, clock; lock output pin, polarity, duration |
-| `#/network` | Wi-Fi credentials, hostname, setup-AP password |
-| `#/mqtt` | Broker, credentials, TLS, topics, Home Assistant discovery |
-| `#/system` | Device name, reader group identifier, restart, factory reset |
+| Route | Upstream equivalent | What lives there |
+| --- | --- | --- |
+| `#/` | `/` (Info) | Lock state, transport, credentials, MQTT, network, device, Aliro identity. Polled every 5 s. |
+| `#/mqtt` | `/mqtt` | Broker, credentials, TLS, topics, Home Assistant discovery |
+| `#/actions` | `/actions` | Lock output pin, polarity, duration, and a manual unlock |
+| `#/misc` | `/misc` | Device name, group identifier, NFC wiring, Wi-Fi, maintenance |
+| `#/logs` | `/logs` | Device log |
+| — | `/ota` | Not implemented; there is no OTA in this firmware |
 
 One form spans the config pages with a single sticky save bar, because the
 device applies configuration as a whole at boot. Saving from any page sends the
-complete document; the device treats it as a patch.
+complete document; the device treats it as a patch. Info and Logs have nothing
+to save, so the bar is hidden there.
+
+## Style
+
+Upstream builds its UI with Svelte, Tailwind and daisyUI 5 on the `dracula`
+(default, dark) and `autumn` (light) themes. Firmware cannot ship a bundler, so
+`index.html` reproduces the daisyUI component classes by hand — `navbar`,
+`drawer`, `menu`, `card`, `btn`, `input`, `toggle`, `badge`, `alert`,
+`status` — with the theme token values copied verbatim from daisyUI's own
+theme files. Same class names, same look, no build step. See
+[NOTICE.md](../NOTICE.md).
 
 ## MQTT
 
@@ -110,8 +126,11 @@ what remains is scope for later milestones:
   configured. Acceptable while this drives an LED on a bench; not acceptable
   on a door.
 - **No OTA.** Flash over USB.
-- **No live log streaming.** Status is polled every 5 s over `/api/status`;
-  logs are on the serial port.
+- **No log streaming.** Upstream pushes logs to the browser over a WebSocket.
+  Here `esp_log_set_vprintf` captures into a 64-line ring buffer that the Logs
+  page polls: fewer moving parts, and no risk of a socket write re-entering the
+  logger that produced the line. The cost is that only the last 64 lines
+  survive, and a burst between polls is lost.
 
 The UI is hand-written HTML in `components/web_server/web/index.html` with no
 npm, bundler or framework, and is embedded straight into the firmware. If it
