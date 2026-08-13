@@ -118,7 +118,13 @@ void app_config_defaults(app_config_t *out)
     out->nfc.rst_pin = CONFIG_ALIRO_NFC_RST;
 
     out->lock.gpio = CONFIG_ALIRO_LOCK_GPIO;
-    out->lock.active_low = CONFIG_ALIRO_LOCK_ACTIVE_LOW;
+#ifdef CONFIG_ALIRO_LOCK_ACTIVE_LOW
+    /* A bool Kconfig that is 'n' is not defined at all, so it cannot be read
+     * as a value -- it has to be tested with #ifdef. */
+    out->lock.active_low = true;
+#else
+    out->lock.active_low = false;
+#endif
     out->lock.unlock_ms = CONFIG_ALIRO_LOCK_UNLOCK_MS;
 
     snprintf(out->net.ap_password, sizeof(out->net.ap_password), "%s", CONFIG_ALIRO_AP_PASSWORD);

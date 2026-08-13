@@ -10,6 +10,8 @@
 #define CONFIG_ALIRO_NFC_IRQ (-1)
 #define CONFIG_ALIRO_NFC_RST (-1)
 #define CONFIG_ALIRO_LOCK_GPIO 2
-#define CONFIG_ALIRO_LOCK_ACTIVE_LOW 0
+/* Left undefined on purpose: ESP-IDF does not define a bool Kconfig that
+ * is 'n'. Defining it as 0 here would hide code that reads it as a value. */
+/* #undef CONFIG_ALIRO_LOCK_ACTIVE_LOW */
 #define CONFIG_ALIRO_LOCK_UNLOCK_MS 3000
 #define CONFIG_ALIRO_AP_PASSWORD "aliro1234"
