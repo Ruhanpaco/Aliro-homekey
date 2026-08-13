@@ -138,6 +138,12 @@ copy from the firmware's own page.
 - [docs/WEB.md](docs/WEB.md) — the configuration service, its API, and what was left out
 - [docs/ROADMAP.md](docs/ROADMAP.md) — milestones, and the honest list of unknowns
 
+## Contributing
+
+Contributions are welcome — especially a real NFC frontend, and a verified
+build on real hardware. See [CONTRIBUTING.md](CONTRIBUTING.md) for the bar a
+contribution has to clear, where to start, and the licensing rules.
+
 ## Licence
 
 Apache-2.0, matching `esp_aliro_lib`.
