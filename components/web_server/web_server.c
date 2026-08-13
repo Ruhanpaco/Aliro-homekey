@@ -100,7 +100,7 @@ static bool session_is_valid(uint32_t session_id)
 
 /* --- Event Publishing ---------------------------------------------------- */
 
-typedef void (*event_handler_t)(const char *event_type, const cJSON *data);
+typedef web_server_event_cb_t event_handler_t;
 static event_handler_t s_event_observers[4] = {NULL};
 
 static void publish_event(const char *event_type, const cJSON *data)
@@ -112,7 +112,7 @@ static void publish_event(const char *event_type, const cJSON *data)
     }
 }
 
-void web_server_register_event_observer(event_handler_t observer)
+void web_server_register_event_observer(web_server_event_cb_t observer)
 {
     for (size_t i = 0; i < sizeof(s_event_observers) / sizeof(s_event_observers[0]); i++) {
         if (!s_event_observers[i]) {
@@ -696,12 +696,17 @@ static esp_err_t handle_post_reboot(httpd_req_t *req)
 
 /* --- WebSocket handlers --------------------------------------------------- */
 
+static esp_err_t handle_ws_post_handshake(httpd_req_t *req);
+
 static esp_err_t handle_websocket(httpd_req_t *req)
 {
     if (req->method == HTTP_GET) {
         ESP_LOGI(k_tag, "WebSocket handshake from fd=%d", httpd_req_to_sockfd(req));
-        /* Return ESP_OK to complete handshake */
-        return ESP_OK;
+        /* ESP-IDF has no post-handshake callback on httpd_uri_t (5.4 and 5.5
+         * both lack ws_post_handshake_cb), but it does call the handler once
+         * with HTTP_GET when the handshake completes. That is this branch, so
+         * the new client is registered here. */
+        return handle_ws_post_handshake(req);
     }
 
     /* Receive WebSocket frame */
@@ -1007,7 +1012,7 @@ esp_err_t web_server_start(const web_server_hooks_t *hooks)
         {.uri = "/api/unlock", .method = HTTP_POST, .handler = handle_post_unlock, .is_websocket = false},
 
         /* WebSocket endpoint */
-        {.uri = "/api/ws", .method = HTTP_GET, .handler = handle_websocket, .is_websocket = true, .ws_post_handshake_cb = handle_ws_post_handshake},
+        {.uri = "/api/ws", .method = HTTP_GET, .handler = handle_websocket, .is_websocket = true},
 
         /* OTA endpoint */
         {.uri = "/api/ota", .method = HTTP_POST, .handler = handle_ota_upload, .is_websocket = false},
