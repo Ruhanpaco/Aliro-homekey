@@ -5,6 +5,12 @@
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 
+# partitions.csv carries two 1.875 MB OTA slots, which needs more than the 2 MB
+# the build assumes by default. 4 MB is what an ESP32-WROOM-32 DevKitC and an
+# ESP32-S3 DevKit actually have. A 2 MB board needs a smaller partition table.
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="4MB"
+
 # --- Required by esp_aliro_lib -------------------------------------------
 # The Aliro transaction is ECDH/ECDSA on P-256, AES-GCM and HKDF-SHA256.
 # Reader and credential keys are parsed from PEM.
