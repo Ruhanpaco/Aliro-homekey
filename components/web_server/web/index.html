@@ -1,0 +1,1155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Aliro HomeKey</title>
+<style>
+/*
+ * Styled after HomeKey-ESP32 (MIT, (c) rednblkx), which builds its UI with
+ * Svelte + Tailwind + DaisyUI 5 on the `dracula` (default, dark) and `autumn`
+ * (light) themes. Firmware cannot ship a bundler, so the DaisyUI component
+ * classes used there are reproduced here by hand, with the theme token values
+ * taken verbatim from DaisyUI's own theme files. Same class names, same look,
+ * no build step.
+ */
+
+/* dracula — DaisyUI's --default and --prefersdark for this project */
+:root{
+  color-scheme:dark;
+  --color-base-100:oklch(28.822% 0.022 277.508);
+  --color-base-200:oklch(26.805% 0.02 277.508);
+  --color-base-300:oklch(24.787% 0.019 277.508);
+  --color-base-content:oklch(97.747% 0.007 106.545);
+  --color-primary:oklch(75.461% 0.183 346.812);
+  --color-primary-content:oklch(15.092% 0.036 346.812);
+  --color-secondary:oklch(74.202% 0.148 301.883);
+  --color-accent:oklch(83.392% 0.124 66.558);
+  --color-neutral:oklch(39.445% 0.032 275.524);
+  --color-neutral-content:oklch(87.889% 0.006 275.524);
+  --color-info:oklch(88.263% 0.093 212.846);
+  --color-success:oklch(87.099% 0.219 148.024);
+  --color-success-content:oklch(17.419% 0.043 148.024);
+  --color-warning:oklch(95.533% 0.134 112.757);
+  --color-warning-content:oklch(19.106% 0.026 112.757);
+  --color-error:oklch(68.22% 0.206 24.43);
+  --color-error-content:oklch(13.644% 0.041 24.43);
+  --radius-selector:1rem; --radius-field:0.5rem; --radius-box:1rem;
+  --border:1px;
+}
+/* autumn — the light theme. An explicit light choice from the host wins too. */
+:root[data-theme=autumn],:root[data-theme=light]{
+  color-scheme:light;
+  --color-base-100:oklch(95.814% 0 0);
+  --color-base-200:oklch(89.107% 0 0);
+  --color-base-300:oklch(82.4% 0 0);
+  --color-base-content:oklch(19.162% 0 0);
+  --color-primary:oklch(40.723% 0.161 17.53);
+  --color-primary-content:oklch(88.144% 0.032 17.53);
+  --color-secondary:oklch(61.676% 0.169 23.865);
+  --color-accent:oklch(73.425% 0.094 60.729);
+  --color-neutral:oklch(54.367% 0.037 51.902);
+  --color-neutral-content:oklch(90.873% 0.007 51.902);
+  --color-info:oklch(69.224% 0.097 207.284);
+  --color-success:oklch(60.995% 0.08 174.616);
+  --color-success-content:oklch(12.199% 0.016 174.616);
+  --color-warning:oklch(70.081% 0.164 56.844);
+  --color-warning-content:oklch(14.016% 0.032 56.844);
+  --color-error:oklch(53.07% 0.241 24.16);
+  --color-error-content:oklch(90.614% 0.048 24.16);
+}
+:root[data-theme=dracula],:root[data-theme=dark]{
+  color-scheme:dark;
+  --color-base-100:oklch(28.822% 0.022 277.508);
+  --color-base-200:oklch(26.805% 0.02 277.508);
+  --color-base-300:oklch(24.787% 0.019 277.508);
+  --color-base-content:oklch(97.747% 0.007 106.545);
+  --color-primary:oklch(75.461% 0.183 346.812);
+  --color-primary-content:oklch(15.092% 0.036 346.812);
+  --color-neutral:oklch(39.445% 0.032 275.524);
+  --color-neutral-content:oklch(87.889% 0.006 275.524);
+  --color-info:oklch(88.263% 0.093 212.846);
+  --color-success:oklch(87.099% 0.219 148.024);
+  --color-success-content:oklch(17.419% 0.043 148.024);
+  --color-warning:oklch(95.533% 0.134 112.757);
+  --color-warning-content:oklch(19.106% 0.026 112.757);
+  --color-error:oklch(68.22% 0.206 24.43);
+  --color-error-content:oklch(13.644% 0.041 24.43);
+}
+
+*{box-sizing:border-box;min-width:0}
+html,body{margin:0;padding:0}
+body{background:var(--color-base-100);color:var(--color-base-content);
+  font:16px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+:focus-visible{outline:2px solid var(--color-primary);outline-offset:2px}
+
+/* --- utilities (the subset this markup uses) --------------------------- */
+/* Beats the component classes below it regardless of source order. */
+.hidden{display:none !important}
+.flex{display:flex}.grid{display:grid}.inline-grid{display:inline-grid}
+.flex-col{flex-direction:column}.flex-1{flex:1 1 0%}.flex-wrap{flex-wrap:wrap}
+.items-center{align-items:center}.items-start{align-items:flex-start}
+.justify-between{justify-content:space-between}.justify-center{justify-content:center}
+.gap-1{gap:.25rem}.gap-2{gap:.5rem}.gap-3{gap:.75rem}.gap-4{gap:1rem}
+.grid-cols-1{grid-template-columns:repeat(1,minmax(0,1fr))}
+.w-full{width:100%}.h-full{height:100%}.h-dvh{height:100dvh}
+.mt-4{margin-top:1rem}.mb-2{margin-bottom:.5rem}.mb-4{margin-bottom:1rem}
+.my-1{margin:.25rem 0}
+.px-3{padding-left:.75rem;padding-right:.75rem}.px-4{padding-left:1rem;padding-right:1rem}
+.py-2{padding-top:.5rem;padding-bottom:.5rem}.p-2{padding:.5rem}
+.rounded-lg{border-radius:.5rem}
+.text-xs{font-size:.75rem;line-height:1.4}.text-sm{font-size:.875rem;line-height:1.45}
+.text-lg{font-size:1.125rem}
+.font-bold{font-weight:700}.font-semibold{font-weight:600}.font-medium{font-weight:500}
+.font-mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.overflow-y-auto{overflow-y:auto}.overflow-hidden{overflow:hidden}
+.sticky{position:sticky}.top-0{top:0}
+.space-y-6 > * + *{margin-top:1.5rem}
+.bg-base-100{background:var(--color-base-100)}
+.bg-base-200{background:var(--color-base-200)}
+.bg-base-300{background:var(--color-base-300)}
+.text-success{color:var(--color-success)}.text-error{color:var(--color-error)}
+.text-warning{color:var(--color-warning)}
+.text-muted{color:color-mix(in oklab,var(--color-base-content) 60%,transparent)}
+@media (min-width:768px){.md\:grid-cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* --- daisyUI components ------------------------------------------------ */
+.navbar{display:flex;align-items:center;padding:.5rem;min-height:4rem;
+  background:var(--color-base-100);z-index:40}
+.navbar-start{display:flex;align-items:center;gap:.25rem;flex:1}
+
+.drawer{display:flex;width:100%;flex:1;overflow:hidden;position:relative}
+.drawer-toggle{position:absolute;opacity:0;width:0;height:0}
+.drawer-side{position:fixed;top:4rem;left:0;bottom:0;z-index:50;
+  display:flex;flex-direction:column;overflow:hidden;
+  transform:translateX(-100%);transition:transform .2s ease-out}
+.drawer-toggle:checked ~ .drawer-side{transform:translateX(0)}
+.drawer-overlay{position:fixed;inset:0;background:rgb(0 0 0/.4);
+  opacity:0;pointer-events:none;transition:opacity .2s}
+.drawer-toggle:checked ~ .drawer-side .drawer-overlay{opacity:1;pointer-events:auto}
+.drawer-content{height:100%;width:100%;overflow:hidden;display:flex;flex-direction:column}
+
+.menu{list-style:none;margin:0;padding:.5rem;display:flex;flex-direction:column}
+.menu li{display:flex}
+.menu li > a{display:flex;align-items:center;gap:.25rem;width:100%;
+  padding:.5rem .75rem;border-radius:var(--radius-field);
+  color:var(--color-base-content);text-decoration:none}
+.menu li > a:hover{background:color-mix(in oklab,var(--color-base-content) 10%,transparent)}
+.menu li > a.bg-neutral{background:var(--color-neutral);color:var(--color-neutral-content)}
+
+.divider{display:flex;height:1rem;align-items:center;margin:.25rem}
+.divider::before{content:"";flex:1;height:1px;
+  background:color-mix(in oklab,var(--color-base-content) 15%,transparent)}
+
+.card{background:var(--color-base-200);border-radius:var(--radius-box);
+  display:flex;flex-direction:column}
+.card-body{padding:1.5rem;display:flex;flex-direction:column;gap:.5rem}
+.card-title{font-size:1.125rem;font-weight:600;margin:0}
+
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:.5rem;
+  height:3rem;padding:0 1rem;border-radius:var(--radius-field);
+  border:var(--border) solid transparent;background:var(--color-base-300);
+  color:var(--color-base-content);font:inherit;font-size:.875rem;font-weight:600;
+  cursor:pointer;white-space:nowrap}
+.btn:hover{background:color-mix(in oklab,var(--color-base-300) 82%,var(--color-base-content))}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn-sm{height:2rem;padding:0 .75rem;font-size:.8125rem}
+.btn-ghost{background:transparent}
+.btn-ghost:hover{background:color-mix(in oklab,var(--color-base-content) 10%,transparent)}
+.btn-primary{background:var(--color-primary);color:var(--color-primary-content)}
+.btn-primary:hover{background:color-mix(in oklab,var(--color-primary) 85%,black)}
+.btn-error{background:var(--color-error);color:var(--color-error-content)}
+.btn-error:hover{background:color-mix(in oklab,var(--color-error) 85%,black)}
+.btn-outline{background:transparent;
+  border-color:color-mix(in oklab,var(--color-base-content) 25%,transparent)}
+.btn-outline:hover{background:color-mix(in oklab,var(--color-base-content) 10%,transparent)}
+
+.form-control{display:flex;flex-direction:column}
+.label{display:flex;align-items:center;justify-content:space-between;gap:.75rem;
+  padding:.25rem 0;cursor:pointer}
+.label-text{font-size:.875rem;color:var(--color-base-content)}
+.input,.select{height:3rem;padding:0 .75rem;width:100%;
+  border-radius:var(--radius-field);
+  border:var(--border) solid color-mix(in oklab,var(--color-base-content) 20%,transparent);
+  background:var(--color-base-100);color:var(--color-base-content);
+  font:inherit;font-size:.875rem}
+.input-sm,.select-sm{height:2rem;font-size:.8125rem;padding:0 .5rem}
+.input:focus,.select:focus{outline:2px solid var(--color-primary);outline-offset:-1px}
+.input::placeholder{color:color-mix(in oklab,var(--color-base-content) 40%,transparent)}
+
+.toggle{appearance:none;width:3rem;height:1.5rem;border-radius:999px;flex:none;
+  background:color-mix(in oklab,var(--color-base-content) 25%,transparent);
+  position:relative;cursor:pointer;transition:background .15s;margin:0}
+.toggle::after{content:"";position:absolute;top:.1875rem;left:.1875rem;
+  width:1.125rem;height:1.125rem;border-radius:999px;background:var(--color-base-100);
+  transition:translate .15s}
+.toggle:checked{background:var(--color-primary)}
+.toggle:checked::after{translate:1.5rem 0}
+.checkbox{appearance:none;width:1.25rem;height:1.25rem;flex:none;margin:0;
+  border-radius:.25rem;cursor:pointer;
+  border:2px solid color-mix(in oklab,var(--color-base-content) 30%,transparent)}
+.checkbox:checked{background:var(--color-primary);border-color:var(--color-primary)}
+.checkbox:checked::after{content:"";display:block;width:100%;height:100%;
+  background:var(--color-primary-content);
+  clip-path:polygon(14% 44%,0 65%,50% 100%,100% 16%,80% 0%,43% 62%)}
+
+.status{display:inline-block;width:.625rem;height:.625rem;border-radius:999px;
+  background:var(--color-base-300)}
+.status-success{background:var(--color-success)}
+.status-error{background:var(--color-error)}
+.status-warning{background:var(--color-warning)}
+.inline-grid > *{grid-area:1/1}
+.animate-ping{animation:ping 1.4s cubic-bezier(0,0,.2,1) infinite}
+@keyframes ping{75%,100%{transform:scale(2.2);opacity:0}}
+
+.badge{display:inline-flex;align-items:center;height:1.5rem;padding:0 .625rem;
+  border-radius:999px;font-size:.75rem;font-weight:600;
+  background:var(--color-base-300);color:var(--color-base-content)}
+.badge-success{background:var(--color-success);color:var(--color-success-content)}
+.badge-error{background:var(--color-error);color:var(--color-error-content)}
+.badge-warning{background:var(--color-warning);color:var(--color-warning-content)}
+.badge-ghost{background:color-mix(in oklab,var(--color-base-content) 12%,transparent)}
+
+.alert{display:flex;align-items:center;gap:.75rem;padding:.75rem 1rem;
+  border-radius:var(--radius-box);background:var(--color-base-300);font-size:.875rem}
+.alert-error{background:var(--color-error);color:var(--color-error-content)}
+.alert-warning{background:var(--color-warning);color:var(--color-warning-content)}
+
+.toast{position:fixed;bottom:1rem;right:1rem;z-index:60;display:flex;
+  flex-direction:column;gap:.5rem;max-width:min(92vw,26rem)}
+
+.mockup-code{background:var(--color-base-300);color:var(--color-base-content);
+  border-radius:var(--radius-box);padding:1rem;overflow:auto;max-height:60vh;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.8125rem;
+  line-height:1.6}
+.mockup-code div{white-space:pre-wrap;word-break:break-word}
+
+.stat-row{display:flex;justify-content:space-between;gap:1rem;padding:.5rem 0;
+  border-bottom:1px solid color-mix(in oklab,var(--color-base-content) 10%,transparent)}
+.stat-row:last-child{border-bottom:0}
+.stat-row dt{font-size:.875rem;
+  color:color-mix(in oklab,var(--color-base-content) 60%,transparent)}
+.stat-row dd{margin:0;font-size:.875rem;text-align:right;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;word-break:break-all}
+
+main{padding:0 1.5rem 1.5rem;height:100%;overflow-y:auto;background:var(--color-base-100)}
+.page{display:none}
+.page.active{display:block}
+.page-head{padding:1.5rem 0 1rem}
+.page-head h1{margin:0;font-size:1.5rem;font-weight:700}
+.page-head p{margin:.25rem 0 0;font-size:.875rem;
+  color:color-mix(in oklab,var(--color-base-content) 60%,transparent)}
+.savebar{position:sticky;bottom:0;padding:1rem 0;background:var(--color-base-100);
+  display:flex;gap:1rem;align-items:center;flex-wrap:wrap}
+/* Above the overlay, so the overlay dims the page but never the menu. */
+.sidebar{width:16rem;display:flex;flex-direction:column;height:100%;overflow:hidden;
+  position:relative;z-index:1}
+
+@media (min-width:1024px){
+  .lg\:hidden{display:none}
+  .lg\:block{display:block}
+  .lg\:flex{display:flex}
+  .lg\:bg-base-200{background:var(--color-base-200)}
+  .lg\:drawer-open > .drawer-side{position:static;transform:none;height:100%}
+  .lg\:drawer-open > .drawer-side .drawer-overlay{display:none}
+  .lg\:drawer-open > .drawer-content{width:auto;flex:1}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none !important;transition:none !important}}
+</style>
+</head>
+<body>
+<div class="flex flex-col h-dvh">
+
+  <!-- Mobile Navbar -->
+  <div class="navbar bg-base-100 lg:hidden sticky top-0">
+    <div class="navbar-start w-full">
+      <label for="main-content-drawer" class="btn btn-ghost drawer-button" aria-label="Menu">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none"
+             viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h8m-8 6h16"/>
+        </svg>
+      </label>
+      <div class="flex justify-between w-full items-center px-3">
+        <span class="font-bold text-lg" data-device-name>Aliro HomeKey</span>
+        <div class="flex items-center gap-1">
+          <div class="inline-grid">
+            <div class="status animate-ping" data-link-dot></div>
+            <div class="status" data-link-dot></div>
+          </div>
+          <span class="text-sm" data-link-text>Connecting</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Drawer -->
+  <div class="drawer lg:drawer-open">
+    <!-- autocomplete=off: without it a browser restores the open drawer on reload. -->
+    <input id="main-content-drawer" type="checkbox" class="drawer-toggle" autocomplete="off">
+
+    <div class="drawer-side">
+      <label for="main-content-drawer" aria-label="close sidebar" class="drawer-overlay"></label>
+
+      <div class="sidebar bg-base-100 lg:bg-base-200" role="navigation" aria-label="Main navigation">
+        <div class="hidden lg:block">
+          <div class="flex items-center px-4 mt-4 mb-2 w-full">
+            <div class="flex items-center justify-center rounded-lg p-2"
+                 style="width:3rem;height:2.5rem;background:color-mix(in oklab,var(--color-info) 20%,transparent)">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--color-info)"
+                   stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="8" cy="12" r="4"/><path d="M12 12h9M17 12v4M20.5 12v3"/>
+              </svg>
+            </div>
+            <div class="flex items-start flex-col w-full px-3">
+              <span class="text-sm font-bold" data-device-name>Aliro HomeKey</span>
+              <div class="flex items-center gap-1">
+                <div class="inline-grid">
+                  <div class="status animate-ping" data-link-dot></div>
+                  <div class="status" data-link-dot></div>
+                </div>
+                <span class="text-xs" data-link-text>Connecting</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="divider hidden lg:flex"></div>
+
+        <ul class="menu flex-1 overflow-y-auto w-full" role="menu">
+          <li class="my-1" role="menuitem">
+            <a href="#/" data-page="info" class="text-lg flex items-center">
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none"
+                   viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round"
+                      d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+              </svg>Info
+            </a>
+          </li>
+          <li class="my-1" role="menuitem">
+            <a href="#/mqtt" data-page="mqtt" class="text-lg flex items-center">
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none"
+                   viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round"
+                      d="M4 20a14 14 0 0114-14M4 20a9 9 0 019-9M4 20a4 4 0 014-4"/>
+                <circle cx="19" cy="6" r="1.6"/>
+              </svg>MQTT
+            </a>
+          </li>
+          <li class="my-1" role="menuitem">
+            <a href="#/actions" data-page="actions" class="text-lg flex items-center">
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 20 20"
+                   fill="currentColor" aria-hidden="true">
+                <path fill-rule="evenodd" d="M9.58 1.077a.75.75 0 0 1 .405.82L9.165 6h4.085a.75.75 0 0 1 .567 1.241l-6.5 7.5a.75.75 0 0 1-1.302-.638L6.835 10H2.75a.75.75 0 0 1-.567-1.241l6.5-7.5a.75.75 0 0 1 .897-.182Z" clip-rule="evenodd"/>
+              </svg>Actions
+            </a>
+          </li>
+          <li class="my-1" role="menuitem">
+            <a href="#/misc" data-page="misc" class="text-lg flex items-center">
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none"
+                   viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round"
+                      d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+              </svg>Misc
+            </a>
+          </li>
+          <li class="my-1" role="menuitem">
+            <a href="#/logs" data-page="logs" class="text-lg flex items-center">
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none"
+                   viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round"
+                      d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+              </svg>Logs
+            </a>
+          </li>
+        </ul>
+
+        <div class="divider"></div>
+        <div style="padding:0 .5rem .75rem">
+          <button type="button" class="btn btn-sm btn-outline w-full" id="theme">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/>
+            </svg>
+            <span id="themelabel">Dark</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="drawer-content">
+      <main id="main-content">
+
+        <!-- ------------------------------------------------------ Info -->
+        <div class="page" data-page="info">
+          <div class="page-head">
+            <h1>Info</h1>
+            <p>What the reader is doing right now.</p>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="card">
+              <div class="card-body">
+                <h2 class="card-title">Reader</h2>
+                <dl id="st_reader"></dl>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-body">
+                <h2 class="card-title">Network</h2>
+                <dl id="st_network"></dl>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-body">
+                <h2 class="card-title">Device</h2>
+                <dl id="st_device"></dl>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-body">
+                <h2 class="card-title">Aliro</h2>
+                <dl id="st_aliro"></dl>
+                <p class="text-xs text-muted">The reader group identifier is what a credential is
+                  issued against. Every reader on the same lock group shares it.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ------------------------------------------------------ MQTT -->
+        <div class="page" data-page="mqtt">
+          <div class="page-head">
+            <h1>MQTT</h1>
+            <p>Publish lock state and tap events, and accept unlock commands.</p>
+          </div>
+
+          <div class="card">
+            <div class="card-body space-y-6">
+              <div>
+                <h3 class="font-semibold">Broker Configuration</h3>
+                <p class="text-sm text-muted">Configure the MQTT broker connection settings.</p>
+              </div>
+
+              <div class="flex items-center gap-3 py-2 px-3 bg-base-100 rounded-lg">
+                <div class="flex items-center gap-2">
+                  <span class="status" id="mqtt_dot"></span>
+                  <span class="text-sm font-medium" id="mqtt_state">Unknown</span>
+                </div>
+              </div>
+
+              <div class="form-control">
+                <label class="label" for="mqtt_enabled">
+                  <span class="label-text">Enable MQTT</span>
+                  <input id="mqtt_enabled" name="mqtt.enabled" type="checkbox" class="toggle">
+                </label>
+              </div>
+
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="form-control">
+                  <label class="label" for="mqtt_broker"><span class="label-text text-sm">Broker Address</span></label>
+                  <input id="mqtt_broker" name="mqtt.broker" type="text" placeholder="192.168.1.100"
+                         class="input input-sm input-bordered w-full" maxlength="63">
+                </div>
+                <div class="form-control">
+                  <label class="label" for="mqtt_port"><span class="label-text text-sm">Port</span></label>
+                  <input id="mqtt_port" name="mqtt.port" type="number" placeholder="1883" min="1" max="65535"
+                         class="input input-sm input-bordered w-full">
+                </div>
+                <div class="form-control">
+                  <label class="label" for="mqtt_client_id"><span class="label-text text-sm">Client ID</span></label>
+                  <input id="mqtt_client_id" name="mqtt.client_id" type="text" maxlength="32"
+                         class="input input-sm input-bordered w-full">
+                </div>
+                <div class="form-control">
+                  <label class="label" for="mqtt_username"><span class="label-text text-sm">Username</span></label>
+                  <input id="mqtt_username" name="mqtt.username" type="text" maxlength="32"
+                         class="input input-sm input-bordered w-full">
+                </div>
+                <div class="form-control">
+                  <label class="label" for="mqtt_password"><span class="label-text text-sm">Password</span></label>
+                  <input id="mqtt_password" name="mqtt.password" type="password" placeholder="unchanged"
+                         maxlength="64" class="input input-sm input-bordered w-full">
+                </div>
+              </div>
+
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="form-control">
+                  <label class="label" for="mqtt_use_ssl">
+                    <span class="label-text text-sm">Enable SSL/TLS</span>
+                    <input id="mqtt_use_ssl" name="mqtt.use_ssl" type="checkbox" class="toggle">
+                  </label>
+                </div>
+                <div class="form-control">
+                  <label class="label" for="mqtt_allow_insecure">
+                    <span class="label-text text-sm">Allow Insecure</span>
+                    <input id="mqtt_allow_insecure" name="mqtt.allow_insecure" type="checkbox" class="toggle">
+                  </label>
+                </div>
+              </div>
+              <div class="alert alert-warning hidden" id="tls_warn">
+                Skipping certificate verification means any broker can impersonate yours.
+                Use it only on a network you control.
+              </div>
+            </div>
+          </div>
+
+          <div class="card mt-4">
+            <div class="card-body space-y-6">
+              <div>
+                <h3 class="font-semibold">Topics</h3>
+                <p class="text-sm text-muted">Every topic is derived from one base.</p>
+              </div>
+              <div class="form-control">
+                <label class="label" for="mqtt_base_topic"><span class="label-text text-sm">Base Topic</span></label>
+                <input id="mqtt_base_topic" name="mqtt.base_topic" type="text" maxlength="48"
+                       class="input input-sm input-bordered w-full">
+              </div>
+              <dl id="topic_preview"></dl>
+            </div>
+          </div>
+
+          <div class="card mt-4">
+            <div class="card-body space-y-6">
+              <div>
+                <h3 class="font-semibold">Behaviour</h3>
+                <p class="text-sm text-muted">What the reader announces, and to whom.</p>
+              </div>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="form-control">
+                  <label class="label" for="mqtt_publish_taps">
+                    <span class="label-text text-sm">Publish tap events</span>
+                    <input id="mqtt_publish_taps" name="mqtt.publish_taps" type="checkbox" class="toggle">
+                  </label>
+                </div>
+                <div class="form-control">
+                  <label class="label" for="mqtt_ha_discovery">
+                    <span class="label-text text-sm">Home Assistant MQTT Discovery</span>
+                    <input id="mqtt_ha_discovery" name="mqtt.ha_discovery" type="checkbox" class="toggle">
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- --------------------------------------------------- Actions -->
+        <div class="page" data-page="actions">
+          <div class="page-head">
+            <h1>Actions</h1>
+            <p>What the reader drives when a tap is granted.</p>
+          </div>
+
+          <div class="card">
+            <div class="card-body space-y-6">
+              <div>
+                <h3 class="font-semibold">Lock Output</h3>
+                <p class="text-sm text-muted">The GPIO wired to your relay, strike or lock driver.</p>
+              </div>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="form-control">
+                  <label class="label" for="lock_gpio"><span class="label-text text-sm">GPIO</span></label>
+                  <select id="lock_gpio" name="lock.gpio" data-pin="out"
+                          class="select select-sm input-bordered w-full"></select>
+                </div>
+                <div class="form-control">
+                  <label class="label" for="unlock_ms"><span class="label-text text-sm">Unlock duration (ms)</span></label>
+                  <input id="unlock_ms" name="lock.unlock_ms" type="number" min="100" max="60000" step="100"
+                         class="input input-sm input-bordered w-full">
+                </div>
+                <div class="form-control">
+                  <label class="label" for="active_low">
+                    <span class="label-text text-sm">Active low</span>
+                    <input id="active_low" name="lock.active_low" type="checkbox" class="toggle">
+                  </label>
+                </div>
+              </div>
+              <p class="text-xs text-muted">Most relay boards for the ESP32 are active low.</p>
+            </div>
+          </div>
+
+          <div class="card mt-4">
+            <div class="card-body space-y-6">
+              <div>
+                <h3 class="font-semibold">Manual Control</h3>
+                <p class="text-sm text-muted">Drives the same output a granted tap does,
+                  including the automatic relock.</p>
+              </div>
+              <div class="flex items-center gap-3 flex-wrap">
+                <button type="button" class="btn btn-primary btn-sm" id="unlock">Unlock now</button>
+                <span class="badge badge-ghost" id="lock_badge">Unknown</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ------------------------------------------------------ Misc -->
+        <div class="page" data-page="misc">
+          <div class="page-head">
+            <h1>Misc</h1>
+            <p>Identity, NFC wiring and network.</p>
+          </div>
+
+          <div class="card">
+            <div class="card-body space-y-6">
+              <div>
+                <h3 class="font-semibold">Device</h3>
+                <p class="text-sm text-muted">How this reader identifies itself.</p>
+              </div>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="form-control">
+                  <label class="label" for="device_name"><span class="label-text text-sm">Device Name</span></label>
+                  <input id="device_name" name="device.name" type="text" maxlength="31" required
+                         class="input input-sm input-bordered w-full">
+                </div>
+                <div class="form-control">
+                  <label class="label" for="group_id"><span class="label-text text-sm">Reader Group Identifier</span></label>
+                  <input id="group_id" name="device.group_id" type="text" maxlength="32" required
+                         pattern="[0-9a-fA-F]{32}" class="input input-sm input-bordered w-full font-mono">
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card mt-4">
+            <div class="card-body space-y-6">
+              <div>
+                <h3 class="font-semibold">NFC Reader</h3>
+                <p class="text-sm text-muted">Reserved and input-only pins are not offered,
+                  and nothing may be assigned twice.</p>
+              </div>
+
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="form-control">
+                  <label class="label" for="nfc_chip"><span class="label-text text-sm">Reader Type</span></label>
+                  <select id="nfc_chip" name="nfc.chip" class="select select-sm input-bordered w-full">
+                    <option value="none">None (no driver yet)</option>
+                    <option value="pn532">PN532</option>
+                    <option value="pn7160">PN7160</option>
+                    <option value="st25r3916">ST25R3916</option>
+                  </select>
+                </div>
+                <div class="form-control">
+                  <label class="label" for="nfc_bus"><span class="label-text text-sm">Bus</span></label>
+                  <select id="nfc_bus" name="nfc.bus" class="select select-sm input-bordered w-full">
+                    <option value="spi">SPI</option>
+                    <option value="i2c">I2C</option>
+                    <option value="none">None</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4" id="spi_fields">
+                <div class="form-control">
+                  <label class="label" for="spi_host"><span class="label-text text-sm">SPI Host</span></label>
+                  <select id="spi_host" name="nfc.spi_host" class="select select-sm input-bordered w-full">
+                    <option value="1">SPI2</option>
+                    <option value="2">SPI3</option>
+                  </select>
+                </div>
+                <div class="form-control">
+                  <label class="label" for="spi_freq_hz"><span class="label-text text-sm">Clock (Hz)</span></label>
+                  <input id="spi_freq_hz" name="nfc.spi_freq_hz" type="number" min="100000" max="20000000"
+                         step="100000" class="input input-sm input-bordered w-full">
+                </div>
+                <div class="form-control">
+                  <label class="label" for="spi_sck"><span class="label-text text-sm">SCK</span></label>
+                  <select id="spi_sck" name="nfc.spi_sck" data-pin="out"
+                          class="select select-sm input-bordered w-full"></select>
+                </div>
+                <div class="form-control">
+                  <label class="label" for="spi_miso"><span class="label-text text-sm">MISO</span></label>
+                  <select id="spi_miso" name="nfc.spi_miso" data-pin="in"
+                          class="select select-sm input-bordered w-full"></select>
+                </div>
+                <div class="form-control">
+                  <label class="label" for="spi_mosi"><span class="label-text text-sm">MOSI</span></label>
+                  <select id="spi_mosi" name="nfc.spi_mosi" data-pin="out"
+                          class="select select-sm input-bordered w-full"></select>
+                </div>
+                <div class="form-control">
+                  <label class="label" for="spi_cs"><span class="label-text text-sm">CS</span></label>
+                  <select id="spi_cs" name="nfc.spi_cs" data-pin="out"
+                          class="select select-sm input-bordered w-full"></select>
+                </div>
+              </div>
+
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4 hidden" id="i2c_fields">
+                <div class="form-control">
+                  <label class="label" for="i2c_sda"><span class="label-text text-sm">SDA</span></label>
+                  <select id="i2c_sda" name="nfc.i2c_sda" data-pin="out"
+                          class="select select-sm input-bordered w-full"></select>
+                </div>
+                <div class="form-control">
+                  <label class="label" for="i2c_scl"><span class="label-text text-sm">SCL</span></label>
+                  <select id="i2c_scl" name="nfc.i2c_scl" data-pin="out"
+                          class="select select-sm input-bordered w-full"></select>
+                </div>
+                <div class="form-control">
+                  <label class="label" for="i2c_freq_hz"><span class="label-text text-sm">Clock (Hz)</span></label>
+                  <input id="i2c_freq_hz" name="nfc.i2c_freq_hz" type="number" min="50000" max="1000000"
+                         step="50000" class="input input-sm input-bordered w-full">
+                </div>
+                <div class="form-control">
+                  <label class="label" for="i2c_addr"><span class="label-text text-sm">Address (7-bit)</span></label>
+                  <input id="i2c_addr" name="nfc.i2c_addr" type="number" min="0" max="127"
+                         class="input input-sm input-bordered w-full">
+                </div>
+              </div>
+
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="form-control">
+                  <label class="label" for="irq_pin"><span class="label-text text-sm">IRQ Pin</span></label>
+                  <select id="irq_pin" name="nfc.irq_pin" data-pin="in" data-optional
+                          class="select select-sm input-bordered w-full"></select>
+                </div>
+                <div class="form-control">
+                  <label class="label" for="rst_pin"><span class="label-text text-sm">Reset / VEN Pin</span></label>
+                  <select id="rst_pin" name="nfc.rst_pin" data-pin="out" data-optional
+                          class="select select-sm input-bordered w-full"></select>
+                </div>
+              </div>
+
+              <div class="alert alert-warning hidden" id="strap_warn"></div>
+              <p class="text-xs text-muted">Pins are stored and validated now; no chip driver is
+                written yet, so the reader still runs with no radio.</p>
+            </div>
+          </div>
+
+          <div class="card mt-4">
+            <div class="card-body space-y-6">
+              <div>
+                <h3 class="font-semibold">Network</h3>
+                <p class="text-sm text-muted">Without credentials, or after five failed joins,
+                  the reader starts its own setup access point.</p>
+              </div>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="form-control">
+                  <label class="label" for="ssid"><span class="label-text text-sm">Wi-Fi SSID</span></label>
+                  <input id="ssid" name="net.ssid" type="text" maxlength="32"
+                         class="input input-sm input-bordered w-full">
+                </div>
+                <div class="form-control">
+                  <label class="label" for="password"><span class="label-text text-sm">Wi-Fi Password</span></label>
+                  <input id="password" name="net.password" type="password" placeholder="unchanged"
+                         maxlength="64" class="input input-sm input-bordered w-full">
+                </div>
+                <div class="form-control">
+                  <label class="label" for="hostname"><span class="label-text text-sm">Hostname</span></label>
+                  <input id="hostname" name="net.hostname" type="text" maxlength="31"
+                         class="input input-sm input-bordered w-full">
+                </div>
+                <div class="form-control">
+                  <label class="label" for="ap_password"><span class="label-text text-sm">Access Point Password</span></label>
+                  <input id="ap_password" name="net.ap_password" type="password" placeholder="unchanged"
+                         maxlength="64" class="input input-sm input-bordered w-full">
+                </div>
+              </div>
+              <p class="text-xs text-muted">At least 8 characters, or blank for an open network.</p>
+            </div>
+          </div>
+
+          <div class="card mt-4">
+            <div class="card-body space-y-6">
+              <div>
+                <h3 class="font-semibold">Maintenance</h3>
+                <p class="text-sm text-muted">Reset erases the stored configuration, including
+                  Wi-Fi credentials. The reader comes back on its setup access point.</p>
+              </div>
+              <div class="flex items-center gap-3 flex-wrap">
+                <button type="button" class="btn btn-sm btn-outline" id="reboot">Reboot Device</button>
+                <button type="button" class="btn btn-sm btn-error" id="reset">Reset Configuration</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ------------------------------------------------------ Logs -->
+        <div class="page" data-page="logs">
+          <div class="page-head">
+            <h1>Logs</h1>
+            <p>The device log, polled from a ring buffer on the reader.</p>
+          </div>
+          <div class="flex items-center gap-3 mb-4 flex-wrap">
+            <label class="label" for="log_follow">
+              <input id="log_follow" type="checkbox" class="checkbox" checked>
+              <span class="label-text text-sm">Follow</span>
+            </label>
+            <button type="button" class="btn btn-sm btn-outline" id="log_clear">Clear</button>
+            <span class="text-xs text-muted" id="log_count"></span>
+          </div>
+          <div class="mockup-code" id="log_view"><div class="text-muted">Waiting for output…</div></div>
+        </div>
+
+        <form id="form" class="savebar">
+          <button type="submit" class="btn btn-primary" id="save">Save Configuration</button>
+          <span class="text-sm text-muted">Stored immediately, applied on the next restart.</span>
+        </form>
+
+      </main>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const PAGES = {info:"Info", mqtt:"MQTT", actions:"Actions", misc:"Misc", logs:"Logs"};
+let caps = null;
+let logSince = 0, logLines = [], logTimer = null;
+let ws = null, wsReconnectTimer = null;
+
+/* --- WebSocket support ------------------------------------------------- */
+
+function connectWebSocket() {
+  if (ws && ws.readyState === WebSocket.OPEN) return;
+
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const url = `${protocol}//${window.location.host}/api/ws`;
+  
+  ws = new WebSocket(url);
+  ws.addEventListener("open", () => {
+    console.log("WebSocket connected");
+    clearTimeout(wsReconnectTimer);
+    // Send ping to keep connection alive
+    const ping = setInterval(() => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({type: "ping"}));
+      }
+    }, 30000);
+    ws.pingInterval = ping;
+  });
+
+  ws.addEventListener("message", (event) => {
+    try {
+      const msg = JSON.parse(event.data);
+      if (msg.type === "metrics") {
+        // Update metrics in real-time
+        if (msg.free_heap !== undefined) {
+          const heapRow = document.querySelector("dd:contains('KB')");
+          if (heapRow) {
+            const rows = [];
+            // Re-fetch full status but update heap locally for now
+            console.log(`Heap: ${(msg.free_heap / 1024).toFixed(1)} KB`);
+          }
+        }
+      } else if (msg.type === "pong") {
+        console.log("Pong received");
+      }
+    } catch (e) {
+      console.error("WebSocket message parse error:", e);
+    }
+  });
+
+  ws.addEventListener("close", () => {
+    console.log("WebSocket disconnected, will reconnect in 3s");
+    if (ws.pingInterval) clearInterval(ws.pingInterval);
+    wsReconnectTimer = setTimeout(connectWebSocket, 3000);
+  });
+
+  ws.addEventListener("error", (event) => {
+    console.error("WebSocket error:", event);
+  });
+}
+
+/* --- theme: dracula / autumn, as upstream ------------------------------ */
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute("data-theme", theme);
+  $("themelabel").textContent = theme === "autumn" ? "Light" : "Dark";
+  try { localStorage.setItem("aliro-theme", theme); } catch {}
+}
+$("theme").addEventListener("click", () => {
+  const current = document.documentElement.getAttribute("data-theme") || "dracula";
+  applyTheme(current === "autumn" ? "dracula" : "autumn");
+});
+try { applyTheme(localStorage.getItem("aliro-theme") || "dracula"); } catch { applyTheme("dracula"); }
+
+/* --- router ------------------------------------------------------------ */
+
+function route() {
+  const name = (location.hash.replace(/^#\/?/, "") || "info").split("/")[0];
+  const page = name in PAGES ? name : "info";
+  for (const el of document.querySelectorAll(".page"))
+    el.classList.toggle("active", el.dataset.page === page);
+  for (const a of document.querySelectorAll(".menu a")) {
+    // Upstream marks the active item with DaisyUI's bg-neutral.
+    a.classList.toggle("bg-neutral", a.dataset.page === page);
+    if (a.dataset.page === page) a.setAttribute("aria-current", "page");
+    else a.removeAttribute("aria-current");
+  }
+  $("form").classList.toggle("hidden", page === "info" || page === "logs");
+  document.title = page === "info" ? "Aliro HomeKey" : `${PAGES[page]} — Aliro HomeKey`;
+  $("main-content-drawer").checked = false;
+  $("main-content").scrollTop = 0;
+  if (page === "logs") startLogs(); else stopLogs();
+}
+window.addEventListener("hashchange", route);
+
+/* --- api --------------------------------------------------------------- */
+
+function toast(message, kind) {
+  const el = document.createElement("div");
+  el.className = kind === "error" ? "alert alert-error" : "alert";
+  el.setAttribute("role", "status");
+  el.textContent = message;
+  $("toast").append(el);
+  setTimeout(() => el.remove(), kind === "error" ? 6000 : 3000);
+}
+
+async function api(path, options) {
+  const res = await fetch(path, options);
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || res.statusText);
+  return body;
+}
+
+/* --- pin pickers ------------------------------------------------------- */
+
+function fillPinSelect(sel) {
+  const direction = sel.dataset.pin;
+  const strapping = new Set(caps.strapping_pins);
+  const inputOnly = new Set(caps.input_only_pins);
+
+  sel.replaceChildren();
+  if (sel.hasAttribute("data-optional")) sel.append(new Option("— not used —", "-1"));
+  for (const pin of caps.usable_pins) {
+    if (direction === "out" && inputOnly.has(pin)) continue;
+    sel.append(new Option(strapping.has(pin) ? `GPIO ${pin} · strapping` : `GPIO ${pin}`, String(pin)));
+  }
+}
+
+function strappingWarning() {
+  const strapping = new Set(caps ? caps.strapping_pins : []);
+  const chosen = [...document.querySelectorAll("select[data-pin]")]
+    .filter((s) => !s.closest(".hidden") && strapping.has(Number(s.value)))
+    .map((s) => `GPIO ${s.value}`);
+  const el = $("strap_warn");
+  el.classList.toggle("hidden", chosen.length === 0);
+  el.textContent = chosen.length
+    ? `Using ${[...new Set(chosen)].join(", ")}: these are sampled at reset. Wiring that pulls them the wrong way can stop the board from booting.`
+    : "";
+}
+
+/* --- form <-> JSON ----------------------------------------------------- */
+
+function setValue(name, value) {
+  const el = document.querySelector(`[name="${name}"]`);
+  if (!el) return;
+  if (el.type === "checkbox") el.checked = !!value;
+  else el.value = value;
+}
+
+function load(config) {
+  for (const [group, values] of Object.entries(config))
+    for (const [key, value] of Object.entries(values))
+      setValue(`${group}.${key}`, value);
+  onBusChange();
+  onMqttChange();
+}
+
+function collect() {
+  const out = {};
+  for (const el of document.querySelectorAll("[name]")) {
+    const [group, key] = el.name.split(".");
+    out[group] ??= {};
+    if (el.type === "checkbox") out[group][key] = el.checked;
+    else if (el.type === "number" || el.dataset.pin || key === "spi_host") out[group][key] = Number(el.value);
+    else out[group][key] = el.value;
+  }
+  return out;
+}
+
+function onBusChange() {
+  const bus = $("nfc_bus").value;
+  $("spi_fields").classList.toggle("hidden", bus !== "spi");
+  $("i2c_fields").classList.toggle("hidden", bus !== "i2c");
+  strappingWarning();
+}
+
+function onMqttChange() {
+  $("tls_warn").classList.toggle("hidden", !($("mqtt_use_ssl").checked && $("mqtt_allow_insecure").checked));
+  const base = ($("mqtt_base_topic").value || "").replace(/\/+$/, "");
+  const rows = [
+    ["LWT Topic", `${base}/status`],
+    ["Lock State Topic", `${base}/lock/state`],
+    ["Lock State Command", `${base}/lock/set`],
+    ["Aliro Auth Topic", `${base}/auth`],
+  ];
+  $("topic_preview").innerHTML = rows
+    .map(([k, v]) => `<div class="stat-row"><dt>${k}</dt><dd>${v}</dd></div>`).join("");
+}
+
+/* --- status ------------------------------------------------------------ */
+
+const badge = (text, kind) => `<span class="badge badge-${kind}">${text}</span>`;
+
+function rows(id, list) {
+  $(id).innerHTML = list
+    .map(([k, v]) => `<div class="stat-row"><dt>${k}</dt><dd>${v}</dd></div>`).join("");
+}
+
+function renderStatus(s) {
+  const online = s.network.connected;
+  const ap = s.network.mode === "setup_ap";
+  const dotClass = ap ? "status-warning" : online ? "status-success" : "status-error";
+  const textClass = ap ? "text-warning" : online ? "text-success" : "text-error";
+
+  document.querySelectorAll("[data-link-dot]").forEach((dot, i) => {
+    dot.className = `status ${dotClass}${i === 0 ? " animate-ping" : ""}`;
+  });
+  for (const el of document.querySelectorAll("[data-link-text]")) {
+    el.textContent = ap ? "Setup AP" : online ? "Online" : "Offline";
+    el.className = `${el.classList.contains("text-sm") ? "text-sm" : "text-xs"} ${textClass}`;
+  }
+  for (const el of document.querySelectorAll("[data-device-name]")) el.textContent = s.device.name;
+
+  const uptime = new Date(s.device.uptime_s * 1000).toISOString().substring(11, 19);
+  rows("st_reader", [
+    ["Lock", s.reader.locked ? badge("Locked", "success") : badge("Unlocked", "warning")],
+    ["NFC Reader", s.reader.transport],
+    ["Credentials", s.reader.credentials],
+    ["MQTT", !s.mqtt.enabled ? badge("Disabled", "ghost")
+      : s.mqtt.connected ? badge("Connected", "success") : badge("Disconnected", "error")],
+  ]);
+  rows("st_network", [
+    ["Mode", s.network.mode === "sta" ? badge("Station", "success")
+      : ap ? badge("Setup AP", "warning") : badge("Offline", "error")],
+    ["SSID", s.network.ssid || "—"],
+    ["IP Address", s.network.ip || "—"],
+    ["Signal", s.network.rssi ? `${s.network.rssi} dBm` : "—"],
+  ]);
+  rows("st_device", [
+    ["Chip", `${s.device.target} rev ${s.device.revision}`],
+    ["Cores", s.device.cores],
+    ["Firmware", s.device.firmware],
+    ["ESP-IDF", s.device.idf],
+    ["Uptime", uptime],
+    ["Free Heap", `${(s.device.free_heap / 1024).toFixed(1)} KB`],
+    ["Heap Low Water", `${(s.device.min_free_heap / 1024).toFixed(1)} KB`],
+  ]);
+
+  $("lock_badge").className = `badge badge-${s.reader.locked ? "success" : "warning"}`;
+  $("lock_badge").textContent = s.reader.locked ? "Locked" : "Unlocked";
+
+  $("mqtt_dot").className = `status ${!s.mqtt.enabled ? "" : s.mqtt.connected ? "status-success" : "status-error"}`;
+  $("mqtt_state").textContent = !s.mqtt.enabled ? "Disabled"
+    : s.mqtt.connected ? "Connected" : "Disconnected";
+  $("mqtt_state").className = `text-sm font-medium ${!s.mqtt.enabled ? "text-muted"
+    : s.mqtt.connected ? "text-success" : "text-error"}`;
+}
+
+async function refreshStatus() {
+  try { renderStatus(await api("/api/status")); } catch { /* keep the last good view */ }
+}
+
+function renderAliro() {
+  const cfg = collect();
+  rows("st_aliro", [
+    ["Group Identifier", cfg.device.group_id || "—"],
+    ["NFC Bus", cfg.nfc.bus === "spi" ? `SPI${cfg.nfc.spi_host + 1}` : cfg.nfc.bus.toUpperCase()],
+    ["Lock GPIO", cfg.lock.gpio],
+    ["Unlock", `${cfg.lock.unlock_ms} ms`],
+  ]);
+}
+
+/* --- logs -------------------------------------------------------------- */
+
+const escapeHtml = (s) => s.replace(/[&<>]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+
+async function pollLogs() {
+  try {
+    const data = await api(`/api/logs?since=${logSince}`);
+    logSince = data.next;
+    if (data.lines.length) {
+      logLines.push(...data.lines.map((l) => l.text));
+      logLines = logLines.slice(-400);
+      const view = $("log_view");
+      view.innerHTML = logLines.map((line) => `<div>${escapeHtml(line)}</div>`).join("");
+      if ($("log_follow").checked) view.scrollTop = view.scrollHeight;
+    }
+    $("log_count").textContent = `${logLines.length} line${logLines.length === 1 ? "" : "s"}`;
+  } catch { /* the device may be rebooting */ }
+}
+
+function startLogs() {
+  if (logTimer) return;
+  pollLogs();
+  logTimer = setInterval(pollLogs, 1500);
+}
+function stopLogs() {
+  clearInterval(logTimer);
+  logTimer = null;
+}
+
+$("log_clear").addEventListener("click", () => {
+  logLines = [];
+  $("log_view").innerHTML = '<div class="text-muted">Cleared.</div>';
+  $("log_count").textContent = "";
+});
+
+/* --- wiring ------------------------------------------------------------ */
+
+$("nfc_bus").addEventListener("change", onBusChange);
+for (const id of ["mqtt_use_ssl","mqtt_allow_insecure","mqtt_base_topic"])
+  $(id).addEventListener("input", onMqttChange);
+document.addEventListener("change", (e) => { if (e.target.dataset.pin) strappingWarning(); });
+
+$("form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  $("save").disabled = true;
+  try {
+    await api("/api/config", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(collect()),
+    });
+    toast("Configuration saved. Reboot to apply.");
+    renderAliro();
+  } catch (err) {
+    toast(err.message, "error");
+  } finally {
+    $("save").disabled = false;
+  }
+});
+
+$("unlock").addEventListener("click", async () => {
+  try { await api("/api/unlock", {method: "POST"}); toast("Unlocked."); refreshStatus(); }
+  catch (err) { toast(err.message, "error"); }
+});
+
+$("reboot").addEventListener("click", async () => {
+  if (!confirm("Reboot the reader now?")) return;
+  try { await api("/api/reboot", {method: "POST"}); toast("Rebooting…"); }
+  catch (err) { toast(err.message, "error"); }
+});
+
+$("reset").addEventListener("click", async () => {
+  if (!confirm("Erase the stored configuration, including Wi-Fi credentials?")) return;
+  try {
+    await api("/api/config/reset", {method: "POST"});
+    toast("Configuration erased. Reboot to apply.");
+    load(await api("/api/config"));
+    renderAliro();
+  } catch (err) { toast(err.message, "error"); }
+});
+
+(async function init() {
+  route();
+  // Connect WebSocket for real-time updates
+  connectWebSocket();
+  
+  try {
+    caps = await api("/api/hardware");
+    document.querySelectorAll("select[data-pin]").forEach(fillPinSelect);
+    if (caps.spi_host_count <= 2) $("spi_host").querySelector('option[value="2"]')?.remove();
+    load(await api("/api/config"));
+    renderAliro();
+  } catch (err) {
+    toast("Could not load configuration: " + err.message, "error");
+  }
+  refreshStatus();
+  setInterval(refreshStatus, 5000);
+})();
+</script>
+</body>
+</html>

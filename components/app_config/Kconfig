@@ -1,0 +1,84 @@
+menu "Aliro configuration defaults"
+
+comment "Applied on first boot and after a config reset. Edit at runtime in the web UI."
+
+config ALIRO_DEFAULT_DEVICE_NAME
+    string "Device name"
+    default "aliro-homekey"
+
+config ALIRO_READER_GROUP_ID
+    string "Reader group identifier (32 hex chars)"
+    default "00112233445566778899AABBCCDDEEFF"
+    help
+        16-byte Reader Group Identifier. Identifies this installation to user
+        devices; every reader in the same lock group shares it. Change it
+        before deploying anything real.
+
+menu "NFC frontend"
+
+config ALIRO_NFC_SPI_SCK
+    int "SPI SCK"
+    default 18
+
+config ALIRO_NFC_SPI_MISO
+    int "SPI MISO"
+    default 19
+
+config ALIRO_NFC_SPI_MOSI
+    int "SPI MOSI"
+    default 23
+
+config ALIRO_NFC_SPI_CS
+    int "SPI CS"
+    default 5
+
+config ALIRO_NFC_IRQ
+    int "IRQ pin (-1 if unused)"
+    default -1
+
+config ALIRO_NFC_RST
+    int "Reset / VEN pin (-1 if unused)"
+    default -1
+
+endmenu
+
+menu "Lock output"
+
+config ALIRO_LOCK_GPIO
+    int "Lock output GPIO"
+    default 2
+    help
+        GPIO driving the relay, strike or lock driver. On a bare DevKit this
+        can stay on the on-board LED pin for bring-up.
+
+config ALIRO_LOCK_ACTIVE_LOW
+    bool "Lock output is active low"
+    default n
+    help
+        Most relay boards for the ESP32 are active low.
+
+config ALIRO_LOCK_UNLOCK_MS
+    int "Unlock duration (ms)"
+    default 3000
+
+endmenu
+
+menu "Network"
+
+config ALIRO_AP_PASSWORD
+    string "Setup access point password (>= 8 chars)"
+    default "aliro1234"
+    help
+        The device starts this access point when it has no Wi-Fi credentials
+        or cannot join. Connect to it to reach the configuration UI.
+
+endmenu
+
+config ALIRO_MAX_CREDENTIALS
+    int "Maximum registered credentials"
+    default 8
+    help
+        Foundation-phase credential store: a fixed in-memory table, populated
+        at boot. Persistent storage and enrollment replace it later.
+
+endmenu

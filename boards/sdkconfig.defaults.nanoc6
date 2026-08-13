@@ -1,0 +1,10 @@
+# M5Stack NanoC6 (ESP32-C6) + M5Stack Unit NFC (ST25R3916), I2C on GPIO2/GPIO1.
+# Target: idf.py set-target esp32c6
+
+CONFIG_IDF_TARGET="esp32c6"
+
+# The ST25R3916 driver (M5Unit-NFC) is C++ and needs RTTI/exceptions.
+CONFIG_COMPILER_CXX_RTTI=y
+CONFIG_COMPILER_CXX_EXCEPTIONS=y
+
+CONFIG_ALIRO_LOCK_GPIO=7

@@ -1,0 +1,17 @@
+# ESP-IDF and host-test build output
+build/
+test/host/build/
+sdkconfig
+sdkconfig.old
+managed_components/
+dependencies.lock
+
+# Reader identity and credentials: never commit these
+main/certs/*.pem
+main/certs/*.der
+
+# Editors / OS
+.vscode/
+.idea/
+compile_commands.json
+.DS_Store

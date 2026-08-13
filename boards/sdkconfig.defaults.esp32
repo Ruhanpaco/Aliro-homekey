@@ -1,0 +1,22 @@
+# Default board: plain ESP32 (ESP32-WROOM-32 / DevKitC).
+#
+# The ESP32 has no NFC radio of its own, so an external NFC frontend is wired
+# to it (PN532 / PN7160 / ST25R3916 over SPI or I2C). Which one, and on which
+# pins, is a runtime setting in the web UI -- the values below are only the
+# first-boot defaults.
+#
+# Target: idf.py set-target esp32
+
+CONFIG_IDF_TARGET="esp32"
+
+# VSPI pinout, the usual place a PN532 breakout lands on a DevKitC.
+CONFIG_ALIRO_NFC_SPI_SCK=18
+CONFIG_ALIRO_NFC_SPI_MISO=19
+CONFIG_ALIRO_NFC_SPI_MOSI=23
+CONFIG_ALIRO_NFC_SPI_CS=5
+
+CONFIG_ALIRO_LOCK_GPIO=2
+
+# ESP32 is dual-core: pin the Aliro transaction task to APP_CPU so Wi-Fi and
+# the web server on PRO_CPU cannot stall an in-flight NFC transaction.
+CONFIG_ALIRO_READER_TASK_CORE=1

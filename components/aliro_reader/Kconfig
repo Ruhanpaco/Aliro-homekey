@@ -1,0 +1,37 @@
+menu "Aliro reader"
+
+config ALIRO_READER_TASK_STACK_SIZE
+    int "Reader task stack size (bytes)"
+    default 8192
+    help
+        The Aliro transaction runs ECDH, ECDSA and AES-GCM on this task's
+        stack. 8 KB is the size Espressif's own reference example uses.
+
+config ALIRO_READER_TASK_PRIORITY
+    int "Reader task priority"
+    default 18
+    help
+        A tap has a hard real-time budget: the user device is only in the
+        field while someone holds a phone to the reader. Keep this above
+        housekeeping work.
+
+config ALIRO_READER_TASK_CORE
+    int "Reader task core"
+    default 0
+    range 0 1
+    help
+        Core to pin the reader task to. Ignored on single-core targets.
+
+config ALIRO_READER_POLL_INTERVAL_MS
+    int "Polling interval when no device is present (ms)"
+    default 100
+
+config ALIRO_READER_FAST_TRANSACTION_SLOTS
+    int "Persistent fast-transaction key slots"
+    default 20
+    help
+        Fast transactions skip the full handshake for a device that has
+        already been seen, which is the difference between a tap that feels
+        instant and one that does not. 0 disables fast transactions.
+
+endmenu

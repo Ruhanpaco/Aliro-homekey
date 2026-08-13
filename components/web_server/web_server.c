@@ -1,0 +1,1079 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Aliro HomeKey contributors
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include "web_server.h"
+
+#include "log_ring.h"
+
+#include "app_config.h"
+#include "net_manager.h"
+
+#include <cJSON.h>
+#include <esp_app_desc.h>
+#include <esp_check.h>
+#include <esp_chip_info.h>
+#include <esp_http_server.h>
+#include <esp_log.h>
+#include <esp_ota_ops.h>
+#include <esp_partition.h>
+#include <esp_system.h>
+#include <esp_timer.h>
+#include <esp_wifi.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
+#include <freertos/task.h>
+#include <freertos/semphr.h>
+
+#include <stdlib.h>
+#include <string.h>
+#include <inttypes.h>
+
+static const char *const k_tag = "aliro/web";
+static const size_t k_max_body = 4096;
+static const size_t k_max_ws_payload = 8192;
+
+extern const uint8_t index_html_start[] asm("_binary_index_html_start");
+extern const uint8_t index_html_end[] asm("_binary_index_html_end");
+
+static httpd_handle_t s_server;
+static web_server_hooks_t s_hooks;
+
+/* --- Session and Authentication ----------------------------------------- */
+
+typedef struct {
+    uint32_t id;
+    uint64_t created_at;
+    bool authenticated;
+} session_t;
+
+#define SESSION_TIMEOUT_MS (15 * 60 * 1000)  /* 15 minutes */
+#define MAX_SESSIONS 8
+static session_t s_sessions[MAX_SESSIONS];
+static SemaphoreHandle_t s_sessions_mutex = NULL;
+
+static uint32_t session_create(void)
+{
+    if (xSemaphoreTake(s_sessions_mutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
+        return 0;
+    }
+
+    uint32_t now_ms = esp_timer_get_time() / 1000;
+    for (size_t i = 0; i < MAX_SESSIONS; i++) {
+        if (s_sessions[i].created_at == 0 || (now_ms - s_sessions[i].created_at) > SESSION_TIMEOUT_MS) {
+            s_sessions[i].id = (i + 1) * 12345 + (now_ms & 0xFFFF);
+            s_sessions[i].created_at = now_ms;
+            s_sessions[i].authenticated = false;
+            xSemaphoreGive(s_sessions_mutex);
+            return s_sessions[i].id;
+        }
+    }
+
+    xSemaphoreGive(s_sessions_mutex);
+    return 0;
+}
+
+static bool session_is_valid(uint32_t session_id)
+{
+    if (session_id == 0) {
+        return false;
+    }
+
+    if (xSemaphoreTake(s_sessions_mutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
+        return false;
+    }
+
+    uint32_t now_ms = esp_timer_get_time() / 1000;
+    for (size_t i = 0; i < MAX_SESSIONS; i++) {
+        if (s_sessions[i].id == session_id && (now_ms - s_sessions[i].created_at) <= SESSION_TIMEOUT_MS) {
+            s_sessions[i].created_at = now_ms; /* Refresh expiry */
+            xSemaphoreGive(s_sessions_mutex);
+            return true;
+        }
+    }
+
+    xSemaphoreGive(s_sessions_mutex);
+    return false;
+}
+
+/* --- Event Publishing ---------------------------------------------------- */
+
+typedef void (*event_handler_t)(const char *event_type, const cJSON *data);
+static event_handler_t s_event_observers[4] = {NULL};
+
+static void publish_event(const char *event_type, const cJSON *data)
+{
+    for (size_t i = 0; i < sizeof(s_event_observers) / sizeof(s_event_observers[0]); i++) {
+        if (s_event_observers[i]) {
+            s_event_observers[i](event_type, data);
+        }
+    }
+}
+
+void web_server_register_event_observer(event_handler_t observer)
+{
+    for (size_t i = 0; i < sizeof(s_event_observers) / sizeof(s_event_observers[0]); i++) {
+        if (!s_event_observers[i]) {
+            s_event_observers[i] = observer;
+            ESP_LOGI(k_tag, "Event observer registered at index %zu", i);
+            return;
+        }
+    }
+    ESP_LOGW(k_tag, "No space for more event observers");
+}
+
+/* --- Validation & Response Helpers ---------------------------------------- */
+
+/** Standard HomeKey-style JSON response format */
+static esp_err_t send_json_response(httpd_req_t *req, bool success, const char *message, 
+                                     const char *error, cJSON *data)
+{
+    httpd_resp_set_type(req, "application/json");
+    cJSON *res = cJSON_CreateObject();
+    
+    cJSON_AddBoolToObject(res, "success", success);
+    if (message) cJSON_AddStringToObject(res, "message", message);
+    if (error) cJSON_AddStringToObject(res, "error", error);
+    if (data) cJSON_AddItemToObject(res, "data", data);
+    
+    char *json_str = cJSON_PrintUnformatted(res);
+    esp_err_t err = httpd_resp_sendstr(req, json_str);
+    free(json_str);
+    cJSON_Delete(res);
+    
+    return err;
+}
+
+/** Validate setup code: 8 digits, not all same, not sequential patterns */
+static bool is_valid_setup_code(const char *code)
+{
+    if (!code || strlen(code) != 8) return false;
+    
+    // Check all digits
+    for (int i = 0; i < 8; i++) {
+        if (code[i] < '0' || code[i] > '9') return false;
+    }
+    
+    // Reject all same digit (00000000-99999999)
+    bool all_same = true;
+    for (int i = 1; i < 8; i++) {
+        if (code[i] != code[0]) {
+            all_same = false;
+            break;
+        }
+    }
+    if (all_same) return false;
+    
+    // Reject sequential patterns
+    const char *bad_patterns[] = {"12345678", "87654321", NULL};
+    for (int i = 0; bad_patterns[i]; i++) {
+        if (strcmp(code, bad_patterns[i]) == 0) return false;
+    }
+    
+    return true;
+}
+
+/** Validate WiFi credentials */
+static bool is_valid_wifi_credentials(const char *ssid, const char *password)
+{
+    if (!ssid || !password) return false;
+    
+    size_t ssid_len = strlen(ssid);
+    size_t pwd_len = strlen(password);
+    
+    // SSID: 1-32 chars, password: 8-63 chars (WPA2 requirement)
+    return (ssid_len > 0 && ssid_len <= 32) && (pwd_len >= 8 && pwd_len <= 63);
+}
+
+/** Check heap memory is sufficient for requested feature */
+static bool check_heap_available(size_t required_bytes, const char *feature)
+{
+    size_t free_heap = esp_get_free_heap_size();
+    if (free_heap < required_bytes) {
+        ESP_LOGW(k_tag, "%s requires %zu bytes, only %zu available", 
+                 feature, required_bytes, free_heap);
+        return false;
+    }
+    return true;
+}
+
+/** Validate GPIO pin (chip-specific) */
+static bool is_valid_gpio_pin(uint8_t pin)
+{
+    // Reject invalid pin numbers
+    if (pin == 255) return true;  // -1 means "not used"
+    
+    // ESP32 valid GPIO ranges (chip-dependent)
+    // For now, accept 0-39 as general range (actual varies by chip)
+    return pin < 40;
+}
+
+/** Check GPIO is not reserved for flash or PSRAM */
+static bool is_reserved_gpio(uint8_t pin)
+{
+    // Reserved pins for ESP32 (varies by chip)
+    // GPIO 6-11: Flash (SPI0, SPI1)
+    // GPIO 16-17: PSRAM (if used)
+    if ((pin >= 6 && pin <= 11) || (pin >= 16 && pin <= 17)) {
+        return true;
+    }
+    return false;
+}
+
+/* --- WebSocket and real-time support -------------------------------------- */
+
+typedef struct {
+    int fd;
+    httpd_ws_type_t type;
+    size_t len;
+    uint8_t *payload;
+    uint8_t inline_payload[256];
+} ws_frame_t;
+
+static QueueHandle_t s_ws_queue = NULL;
+static TaskHandle_t s_ws_task_handle = NULL;
+static esp_timer_handle_t s_status_timer = NULL;
+
+/* WebSocket clients registry */
+typedef struct {
+    int fd;
+} ws_client_t;
+
+#define WS_MAX_CLIENTS 4
+static ws_client_t s_ws_clients[WS_MAX_CLIENTS];
+static size_t s_ws_client_count = 0;
+static SemaphoreHandle_t s_ws_clients_mutex = NULL;
+
+/* --- helpers ------------------------------------------------------------- */
+
+static esp_err_t send_json(httpd_req_t *req, const char *json)
+{
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    return httpd_resp_sendstr(req, json);
+}
+
+/** @brief Send an owned JSON string and free it. */
+static esp_err_t send_json_owned(httpd_req_t *req, char *json)
+{
+    if (!json) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "out of memory");
+        return ESP_FAIL;
+    }
+    const esp_err_t err = send_json(req, json);
+    free(json);
+    return err;
+}
+
+static esp_err_t send_error(httpd_req_t *req, httpd_err_code_t code, const char *message)
+{
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddBoolToObject(root, "ok", false);
+    cJSON_AddStringToObject(root, "error", message);
+    char *json = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+
+    httpd_resp_set_status(req, code == HTTPD_400_BAD_REQUEST ? "400 Bad Request" : "500 Internal Server Error");
+    const esp_err_t err = send_json(req, json ? json : "{\"ok\":false}");
+    free(json);
+    return err;
+}
+
+/** @brief Read the whole request body into a NUL-terminated heap buffer. */
+static char *read_body(httpd_req_t *req)
+{
+    if (req->content_len == 0 || req->content_len > k_max_body) {
+        return NULL;
+    }
+
+    char *buf = malloc(req->content_len + 1);
+    if (!buf) {
+        return NULL;
+    }
+
+    size_t received = 0;
+    while (received < req->content_len) {
+        const int ret = httpd_req_recv(req, buf + received, req->content_len - received);
+        if (ret <= 0) {
+            free(buf);
+            return NULL;
+        }
+        received += ret;
+    }
+    buf[received] = '\0';
+    return buf;
+}
+
+/* --- WebSocket support ---------------------------------------------------- */
+
+static void ws_queue_frame(int fd, const uint8_t *payload, size_t len, httpd_ws_type_t type)
+{
+    ws_frame_t *frame = malloc(sizeof(ws_frame_t));
+    if (!frame) {
+        return;
+    }
+
+    frame->fd = fd;
+    frame->type = type;
+    frame->len = len;
+
+    if (len <= sizeof(frame->inline_payload)) {
+        memcpy(frame->inline_payload, payload, len);
+        frame->payload = frame->inline_payload;
+    } else {
+        frame->payload = malloc(len);
+        if (!frame->payload) {
+            free(frame);
+            return;
+        }
+        memcpy(frame->payload, payload, len);
+    }
+
+    if (xQueueSend(s_ws_queue, &frame, pdMS_TO_TICKS(100)) != pdTRUE) {
+        if (frame->payload != frame->inline_payload) {
+            free(frame->payload);
+        }
+        free(frame);
+    }
+}
+
+static void ws_add_client(int fd)
+{
+    if (xSemaphoreTake(s_ws_clients_mutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
+        return;
+    }
+
+    for (size_t i = 0; i < WS_MAX_CLIENTS; i++) {
+        if (s_ws_clients[i].fd == -1) {
+            s_ws_clients[i].fd = fd;
+            s_ws_client_count++;
+            ESP_LOGI(k_tag, "WebSocket client added: fd=%d, total=%zu", fd, s_ws_client_count);
+            break;
+        }
+    }
+
+    xSemaphoreGive(s_ws_clients_mutex);
+}
+
+static void ws_remove_client(int fd)
+{
+    if (xSemaphoreTake(s_ws_clients_mutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
+        return;
+    }
+
+    for (size_t i = 0; i < WS_MAX_CLIENTS; i++) {
+        if (s_ws_clients[i].fd == fd) {
+            s_ws_clients[i].fd = -1;
+            s_ws_client_count--;
+            ESP_LOGI(k_tag, "WebSocket client removed: fd=%d, remaining=%zu", fd, s_ws_client_count);
+            break;
+        }
+    }
+
+    xSemaphoreGive(s_ws_clients_mutex);
+}
+
+static void ws_broadcast(const uint8_t *payload, size_t len, httpd_ws_type_t type)
+{
+    if (xSemaphoreTake(s_ws_clients_mutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
+        return;
+    }
+
+    for (size_t i = 0; i < WS_MAX_CLIENTS; i++) {
+        if (s_ws_clients[i].fd != -1) {
+            ws_queue_frame(s_ws_clients[i].fd, payload, len, type);
+        }
+    }
+
+    xSemaphoreGive(s_ws_clients_mutex);
+}
+
+static void ws_send_task(void *arg)
+{
+    (void)arg;
+
+    while (true) {
+        ws_frame_t *frame = NULL;
+        if (xQueueReceive(s_ws_queue, &frame, portMAX_DELAY) == pdTRUE && frame) {
+            httpd_ws_frame_t ws_pkt = {
+                .final = true,
+                .fragmented = false,
+                .type = frame->type,
+                .len = frame->len,
+                .payload = frame->payload,
+            };
+
+            esp_err_t ret = httpd_ws_send_frame_async(s_server, frame->fd, &ws_pkt);
+            if (ret != ESP_OK) {
+                ESP_LOGW(k_tag, "WebSocket send failed: %s", esp_err_to_name(ret));
+                ws_remove_client(frame->fd);
+            }
+
+            if (frame->payload != frame->inline_payload) {
+                free(frame->payload);
+            }
+            free(frame);
+        }
+    }
+}
+
+/* --- Metrics broadcast ---------------------------------------------------- */
+
+static char *format_metrics_json(void)
+{
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "type", "metrics");
+
+    uint64_t uptime_ms = esp_timer_get_time() / 1000;
+    cJSON_AddNumberToObject(root, "uptime_ms", (double)uptime_ms);
+    cJSON_AddNumberToObject(root, "free_heap", esp_get_free_heap_size());
+    cJSON_AddNumberToObject(root, "min_free_heap", esp_get_minimum_free_heap_size());
+
+    net_status_t net;
+    net_manager_get_status(&net);
+    cJSON_AddNumberToObject(root, "rssi", net.rssi);
+
+    cJSON_AddBoolToObject(root, "mqtt_connected", s_hooks.mqtt_connected ? s_hooks.mqtt_connected() : false);
+    cJSON_AddBoolToObject(root, "locked", s_hooks.lock_is_locked ? s_hooks.lock_is_locked() : true);
+
+    char *json = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    return json;
+}
+
+static void status_timer_callback(void *arg)
+{
+    (void)arg;
+    char *metrics = format_metrics_json();
+    if (metrics) {
+        ws_broadcast((const uint8_t *)metrics, strlen(metrics), HTTPD_WS_TYPE_TEXT);
+        free(metrics);
+    }
+}
+
+/* --- handlers ------------------------------------------------------------ */
+
+static esp_err_t handle_index(httpd_req_t *req)
+{
+    /* EMBED_FILES stores the file verbatim, with no terminator, so the whole
+     * span between the symbols is page content. */
+    httpd_resp_set_type(req, "text/html");
+    return httpd_resp_send(req, (const char *)index_html_start, index_html_end - index_html_start);
+}
+
+static esp_err_t handle_get_status(httpd_req_t *req)
+{
+    esp_chip_info_t chip;
+    esp_chip_info(&chip);
+    const esp_app_desc_t *app = esp_app_get_description();
+
+    cJSON *data = cJSON_CreateObject();
+    cJSON *device = cJSON_AddObjectToObject(data, "device");
+    cJSON_AddStringToObject(device, "name", app_config_get()->device_name);
+    cJSON_AddStringToObject(device, "target", CONFIG_IDF_TARGET);
+    cJSON_AddNumberToObject(device, "cores", chip.cores);
+    cJSON_AddNumberToObject(device, "revision", chip.revision);
+    cJSON_AddStringToObject(device, "firmware", app ? app->version : "unknown");
+    cJSON_AddStringToObject(device, "idf", app ? app->idf_ver : "unknown");
+    cJSON_AddNumberToObject(device, "uptime_s", (double)(esp_timer_get_time() / 1000000));
+    cJSON_AddNumberToObject(device, "free_heap", esp_get_free_heap_size());
+    cJSON_AddNumberToObject(device, "min_free_heap", esp_get_minimum_free_heap_size());
+
+    net_status_t net;
+    net_manager_get_status(&net);
+    cJSON *network = cJSON_AddObjectToObject(data, "network");
+    cJSON_AddStringToObject(network, "mode", net.mode == NET_MODE_STA          ? "sta"
+                                             : net.mode == NET_MODE_SETUP_AP ? "setup_ap"
+                                                                              : "offline");
+    cJSON_AddBoolToObject(network, "connected", net.connected);
+    cJSON_AddStringToObject(network, "ssid", net.ssid);
+    cJSON_AddStringToObject(network, "ip", net.ip);
+    cJSON_AddNumberToObject(network, "rssi", net.rssi);
+
+    cJSON *reader = cJSON_AddObjectToObject(data, "reader");
+    cJSON_AddNumberToObject(reader, "credentials", s_hooks.credential_count ? s_hooks.credential_count() : 0);
+    cJSON_AddStringToObject(reader, "transport", s_hooks.transport_name ? s_hooks.transport_name() : "unknown");
+    cJSON_AddBoolToObject(reader, "locked", s_hooks.lock_is_locked ? s_hooks.lock_is_locked() : true);
+
+    cJSON *mqtt = cJSON_AddObjectToObject(data, "mqtt");
+    cJSON_AddBoolToObject(mqtt, "enabled", s_hooks.mqtt_enabled ? s_hooks.mqtt_enabled() : false);
+    cJSON_AddBoolToObject(mqtt, "connected", s_hooks.mqtt_connected ? s_hooks.mqtt_connected() : false);
+
+    return send_json_response(req, true, "Device status", NULL, data);
+}
+
+static esp_err_t handle_get_hardware(httpd_req_t *req)
+{
+    char *hw_json = app_config_hardware_caps_json();
+    cJSON *data = cJSON_Parse(hw_json);
+    if (!data) {
+        httpd_resp_set_status(req, "500 Internal Server Error");
+        return send_json_response(req, false, NULL, "failed to parse hardware capabilities", NULL);
+    }
+    esp_err_t ret = send_json_response(req, true, "Hardware capabilities", NULL, data);
+    free(hw_json);
+    return ret;
+}
+
+static esp_err_t handle_get_config(httpd_req_t *req)
+{
+    char *cfg_json = app_config_to_json(app_config_get(), false);
+    cJSON *data = cJSON_Parse(cfg_json);
+    if (!data) {
+        httpd_resp_set_status(req, "500 Internal Server Error");
+        return send_json_response(req, false, NULL, "failed to parse configuration", NULL);
+    }
+    esp_err_t ret = send_json_response(req, true, "Current configuration", NULL, data);
+    free(cfg_json);
+    return ret;
+}
+
+static esp_err_t handle_post_config(httpd_req_t *req)
+{
+    char *body = read_body(req);
+    if (!body) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        return send_json_response(req, false, NULL, "empty or oversized request body", NULL);
+    }
+
+    /* Parse incoming config */
+    cJSON *incoming = cJSON_Parse(body);
+    free(body);
+    if (!incoming) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        return send_json_response(req, false, NULL, "invalid JSON payload", NULL);
+    }
+
+    /* Start from the running config so a partial document is a patch */
+    app_config_t candidate = *app_config_get();
+    char reason[256] = {0};
+
+    /* Validate incoming fields before applying */
+    cJSON *field = incoming->child;
+    while (field) {
+        const char *key = field->string;
+
+        /* Validate setup code if provided */
+        if (strcmp(key, "group_id") == 0 && cJSON_IsString(field)) {
+            if (!is_valid_setup_code(field->valuestring)) {
+                snprintf(reason, sizeof(reason), 
+                        "Invalid setup code: must be 8 digits, not all same, and not sequential");
+                httpd_resp_set_status(req, "400 Bad Request");
+                cJSON_Delete(incoming);
+                return send_json_response(req, false, NULL, reason, NULL);
+            }
+        }
+
+        /* Validate GPIO pin assignments */
+        if (strstr(key, "_pin") && cJSON_IsNumber(field)) {
+            uint8_t pin = (uint8_t)field->valueint;
+            if (pin != 255 && !is_valid_gpio_pin(pin)) {
+                snprintf(reason, sizeof(reason), "Invalid GPIO pin: %d", pin);
+                httpd_resp_set_status(req, "400 Bad Request");
+                cJSON_Delete(incoming);
+                return send_json_response(req, false, NULL, reason, NULL);
+            }
+            if (is_reserved_gpio(pin)) {
+                snprintf(reason, sizeof(reason), "GPIO %d is reserved for flash/PSRAM", pin);
+                httpd_resp_set_status(req, "400 Bad Request");
+                cJSON_Delete(incoming);
+                return send_json_response(req, false, NULL, reason, NULL);
+            }
+        }
+
+        field = field->next;
+    }
+
+    /* Apply validated JSON to config */
+    char *json_str = cJSON_PrintUnformatted(incoming);
+    esp_err_t err = app_config_from_json(json_str, &candidate, reason, sizeof(reason));
+    free(json_str);
+    cJSON_Delete(incoming);
+    
+    if (err != ESP_OK) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        return send_json_response(req, false, NULL, reason[0] ? reason : "config validation failed", NULL);
+    }
+
+    /* Save config */
+    err = app_config_save(&candidate, reason, sizeof(reason));
+    if (err != ESP_OK) {
+        httpd_resp_set_status(req, "500 Internal Server Error");
+        return send_json_response(req, false, NULL, reason[0] ? reason : "could not save configuration", NULL);
+    }
+
+    /* Publish config changed event */
+    cJSON *event = cJSON_CreateObject();
+    cJSON_AddStringToObject(event, "event", "config_changed");
+    cJSON_AddStringToObject(event, "device_name", candidate.device_name);
+    publish_event("config_changed", event);
+    cJSON_Delete(event);
+
+    ESP_LOGI(k_tag, "Configuration updated and saved");
+    cJSON *data = cJSON_CreateObject();
+    cJSON_AddBoolToObject(data, "restart_required", true);
+    return send_json_response(req, true, "Configuration saved successfully", NULL, data);
+}
+
+static esp_err_t handle_post_config_reset(httpd_req_t *req)
+{
+    if (app_config_reset() != ESP_OK) {
+        httpd_resp_set_status(req, "500 Internal Server Error");
+        return send_json_response(req, false, NULL, "could not erase configuration", NULL);
+    }
+    cJSON *data = cJSON_CreateObject();
+    cJSON_AddBoolToObject(data, "restart_required", true);
+    return send_json_response(req, true, "Configuration reset, device rebooting", NULL, data);
+}
+
+static esp_err_t handle_get_logs(httpd_req_t *req)
+{
+    uint32_t since = 0;
+    char query[48];
+    if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
+        char value[16];
+        if (httpd_query_key_value(query, "since", value, sizeof(value)) == ESP_OK) {
+            since = (uint32_t)strtoul(value, NULL, 10);
+        }
+    }
+
+    static log_line_t lines[32];
+    const size_t count = log_ring_copy_since(since, lines, sizeof(lines) / sizeof(lines[0]));
+
+    cJSON *data = cJSON_CreateObject();
+    cJSON_AddNumberToObject(data, "next", log_ring_next_id());
+    cJSON *array = cJSON_AddArrayToObject(data, "lines");
+    for (size_t i = 0; i < count; i++) {
+        cJSON *entry = cJSON_CreateObject();
+        cJSON_AddNumberToObject(entry, "id", lines[i].id);
+        cJSON_AddStringToObject(entry, "text", lines[i].text);
+        cJSON_AddItemToArray(array, entry);
+    }
+
+    return send_json_response(req, true, "Logs retrieved", NULL, data);
+}
+
+static esp_err_t handle_post_unlock(httpd_req_t *req)
+{
+    if (!s_hooks.unlock) {
+        httpd_resp_set_status(req, "500 Internal Server Error");
+        return send_json_response(req, false, NULL, "no lock output configured", NULL);
+    }
+    if (s_hooks.unlock() != ESP_OK) {
+        httpd_resp_set_status(req, "500 Internal Server Error");
+        return send_json_response(req, false, NULL, "could not drive the lock output", NULL);
+    }
+    
+    /* Publish lock event */
+    cJSON *event = cJSON_CreateObject();
+    cJSON_AddStringToObject(event, "event", "unlock_triggered");
+    cJSON_AddNumberToObject(event, "timestamp", esp_timer_get_time() / 1000000);
+    publish_event("lock_event", event);
+    cJSON_Delete(event);
+
+    cJSON *data = cJSON_CreateObject();
+    cJSON_AddBoolToObject(data, "unlocked", true);
+    return send_json_response(req, true, "Lock activated", NULL, data);
+}
+
+static void reboot_task(void *params)
+{
+    (void)params;
+    vTaskDelay(pdMS_TO_TICKS(500)); /* let the response reach the browser */
+    esp_restart();
+}
+
+static esp_err_t handle_post_reboot(httpd_req_t *req)
+{
+    cJSON *data = cJSON_CreateObject();
+    cJSON_AddNumberToObject(data, "reboot_delay_ms", 500);
+    const esp_err_t err = send_json_response(req, true, "Device rebooting", NULL, data);
+    xTaskCreate(reboot_task, "reboot", 2048, NULL, 5, NULL);
+    return err;
+}
+
+/* --- WebSocket handlers --------------------------------------------------- */
+
+static esp_err_t handle_websocket(httpd_req_t *req)
+{
+    if (req->method == HTTP_GET) {
+        ESP_LOGI(k_tag, "WebSocket handshake from fd=%d", httpd_req_to_sockfd(req));
+        /* Return ESP_OK to complete handshake */
+        return ESP_OK;
+    }
+
+    /* Receive WebSocket frame */
+    httpd_ws_frame_t ws_pkt = {0};
+    esp_err_t ret = httpd_ws_recv_frame(req, &ws_pkt, 0);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    if (ws_pkt.len > k_max_ws_payload) {
+        ESP_LOGE(k_tag, "WebSocket payload too large: %zu", ws_pkt.len);
+        return ESP_FAIL;
+    }
+
+    uint8_t *buf = malloc(ws_pkt.len);
+    if (!buf) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    ws_pkt.payload = buf;
+    ret = httpd_ws_recv_frame(req, &ws_pkt, ws_pkt.len);
+    if (ret != ESP_OK) {
+        free(buf);
+        return ret;
+    }
+
+    if (ws_pkt.type == HTTPD_WS_TYPE_TEXT) {
+        /* Echo back the message for keepalive, or handle specific commands */
+        cJSON *msg = cJSON_ParseWithLength((const char *)ws_pkt.payload, ws_pkt.len);
+        if (msg) {
+            cJSON *type_item = cJSON_GetObjectItem(msg, "type");
+            if (type_item && type_item->valuestring) {
+                if (strcmp(type_item->valuestring, "ping") == 0) {
+                    cJSON *pong = cJSON_CreateObject();
+                    cJSON_AddStringToObject(pong, "type", "pong");
+                    char *resp = cJSON_PrintUnformatted(pong);
+                    cJSON_Delete(pong);
+                    if (resp) {
+                        ws_queue_frame(httpd_req_to_sockfd(req), (uint8_t *)resp, strlen(resp), HTTPD_WS_TYPE_TEXT);
+                        free(resp);
+                    }
+                }
+            }
+            cJSON_Delete(msg);
+        }
+    } else if (ws_pkt.type == HTTPD_WS_TYPE_CLOSE) {
+        ws_remove_client(httpd_req_to_sockfd(req));
+    }
+
+    free(buf);
+    return ESP_OK;
+}
+
+static esp_err_t handle_ws_post_handshake(httpd_req_t *req)
+{
+    int fd = httpd_req_to_sockfd(req);
+    ws_add_client(fd);
+
+    /* Send initial status to new client */
+    char *status = format_metrics_json();
+    if (status) {
+        ws_queue_frame(fd, (uint8_t *)status, strlen(status), HTTPD_WS_TYPE_TEXT);
+        free(status);
+    }
+
+    /* Start status timer if needed */
+    if (s_status_timer && !esp_timer_is_active(s_status_timer)) {
+        esp_timer_start_periodic(s_status_timer, 5 * 1000 * 1000); /* 5 seconds */
+    }
+
+    return ESP_OK;
+}
+
+/* --- OTA handlers --------------------------------------------------------- */
+
+typedef struct {
+    uint32_t total_bytes;
+    uint32_t written_bytes;
+    const esp_partition_t *partition;
+    esp_ota_handle_t handle;
+    char error[128];
+} ota_state_t;
+
+static void ota_task(void *arg)
+{
+    ota_state_t *state = (ota_state_t *)arg;
+    ESP_LOGI(k_tag, "OTA task completed: %"PRIu32" bytes written", state->written_bytes);
+    free(state);
+    vTaskDelete(NULL);
+}
+
+static esp_err_t handle_ota_upload(httpd_req_t *req)
+{
+    if (req->content_len == 0) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        return send_json_response(req, false, NULL, "empty request body", NULL);
+    }
+
+    /* Check if enough free heap for OTA operation (need ~50KB) */
+    if (!check_heap_available(51200, "OTA")) {
+        httpd_resp_set_status(req, "507 Insufficient Storage");
+        return send_json_response(req, false, NULL, "insufficient heap memory for OTA operation", NULL);
+    }
+
+    const esp_partition_t *partition = esp_ota_get_next_update_partition(NULL);
+    if (!partition) {
+        httpd_resp_set_status(req, "500 Internal Server Error");
+        return send_json_response(req, false, NULL, "no OTA partition found", NULL);
+    }
+
+    esp_ota_handle_t handle = 0;
+    esp_err_t err = esp_ota_begin(partition, req->content_len, &handle);
+    if (err != ESP_OK) {
+        httpd_resp_set_status(req, "500 Internal Server Error");
+        return send_json_response(req, false, NULL, "OTA begin failed", NULL);
+    }
+
+    size_t remaining = req->content_len;
+    uint8_t buf[1024];
+    uint32_t total_written = 0;
+
+    while (remaining > 0) {
+        size_t chunk_size = remaining > sizeof(buf) ? sizeof(buf) : remaining;
+        int received = httpd_req_recv(req, (char *)buf, chunk_size);
+
+        if (received < 0) {
+            esp_ota_abort(handle);
+            httpd_resp_set_status(req, "500 Internal Server Error");
+            return send_json_response(req, false, NULL, "receive error", NULL);
+        }
+
+        if (received > 0) {
+            err = esp_ota_write(handle, buf, received);
+            if (err != ESP_OK) {
+                esp_ota_abort(handle);
+                httpd_resp_set_status(req, "500 Internal Server Error");
+                return send_json_response(req, false, NULL, "OTA write failed", NULL);
+            }
+            total_written += received;
+            remaining -= received;
+        }
+    }
+
+    err = esp_ota_end(handle);
+    if (err != ESP_OK) {
+        httpd_resp_set_status(req, "500 Internal Server Error");
+        return send_json_response(req, false, NULL, "OTA end failed", NULL);
+    }
+
+    err = esp_ota_set_boot_partition(partition);
+    if (err != ESP_OK) {
+        httpd_resp_set_status(req, "500 Internal Server Error");
+        return send_json_response(req, false, NULL, "OTA set boot failed", NULL);
+    }
+
+    ESP_LOGI(k_tag, "OTA update complete: %"PRIu32" bytes", total_written);
+
+    cJSON *data = cJSON_CreateObject();
+    cJSON_AddNumberToObject(data, "bytes_written", total_written);
+    cJSON_AddNumberToObject(data, "reboot_delay_ms", 1000);
+    const esp_err_t send_err = send_json_response(req, true, "Firmware updated, rebooting", NULL, data);
+
+    /* Reboot after a delay to let response reach client */
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    esp_restart();
+    return send_err;
+}
+
+/* --- Captive Portal handlers ---------------------------------------------- */
+
+static esp_err_t handle_captive_portal_redirect(httpd_req_t *req)
+{
+    httpd_resp_set_status(req, "302 Found");
+    httpd_resp_set_hdr(req, "Location", "/");
+    httpd_resp_send(req, NULL, 0);
+    return ESP_OK;
+}
+
+static esp_err_t handle_wifi_scan(httpd_req_t *req)
+{
+    /* Simple WiFi scan implementation */
+    wifi_scan_config_t scan_config = {
+        .ssid = NULL,
+        .bssid = NULL,
+        .channel = 0,
+        .show_hidden = false,
+        .scan_type = WIFI_SCAN_TYPE_ACTIVE,
+        .scan_time = {.active = {.min = 100, .max = 300}, .passive = 0},
+    };
+
+    esp_err_t err = esp_wifi_scan_start(&scan_config, true);
+    if (err != ESP_OK) {
+        httpd_resp_set_status(req, "500 Internal Server Error");
+        return send_json_response(req, false, NULL, "WiFi scan failed", NULL);
+    }
+
+    uint16_t ap_count = 0;
+    esp_wifi_scan_get_ap_num(&ap_count);
+    if (ap_count > 20) {
+        ap_count = 20; /* Limit to 20 results */
+    }
+
+    wifi_ap_record_t ap_records[ap_count];
+    esp_wifi_scan_get_ap_records(&ap_count, ap_records);
+
+    cJSON *data = cJSON_CreateObject();
+    cJSON *networks = cJSON_AddArrayToObject(data, "networks");
+
+    for (uint16_t i = 0; i < ap_count; i++) {
+        cJSON *net = cJSON_CreateObject();
+        cJSON_AddStringToObject(net, "ssid", (const char *)ap_records[i].ssid);
+        cJSON_AddNumberToObject(net, "rssi", ap_records[i].rssi);
+        cJSON_AddNumberToObject(net, "channel", ap_records[i].primary);
+        cJSON_AddItemToArray(networks, net);
+    }
+
+    cJSON_AddNumberToObject(data, "count", ap_count);
+    return send_json_response(req, true, "WiFi scan results", NULL, data);
+}
+
+/* --- lifecycle ----------------------------------------------------------- */
+
+esp_err_t web_server_start(const web_server_hooks_t *hooks)
+{
+    ESP_RETURN_ON_FALSE(!s_server, ESP_ERR_INVALID_STATE, k_tag, "server already running");
+
+    if (hooks) {
+        s_hooks = *hooks;
+    }
+
+    httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
+    cfg.uri_match_fn = httpd_uri_match_wildcard;
+    cfg.max_uri_handlers = 24;  /* Increased for new handlers */
+    cfg.stack_size = 6144;
+    cfg.lru_purge_enable = true;
+
+    /* Start capturing before the server does anything worth reading. */
+    ESP_ERROR_CHECK_WITHOUT_ABORT(log_ring_init());
+
+    /* Initialize WebSocket infrastructure */
+    s_ws_clients_mutex = xSemaphoreCreateMutex();
+    if (!s_ws_clients_mutex) {
+        ESP_LOGE(k_tag, "Failed to create WebSocket mutex");
+        return ESP_ERR_NO_MEM;
+    }
+
+    /* Initialize session management */
+    s_sessions_mutex = xSemaphoreCreateMutex();
+    if (!s_sessions_mutex) {
+        ESP_LOGE(k_tag, "Failed to create sessions mutex");
+        vSemaphoreDelete(s_ws_clients_mutex);
+        return ESP_ERR_NO_MEM;
+    }
+    memset(s_sessions, 0, sizeof(s_sessions));
+
+    /* Initialize WebSocket client registry */
+    for (size_t i = 0; i < WS_MAX_CLIENTS; i++) {
+        s_ws_clients[i].fd = -1;
+    }
+    s_ws_client_count = 0;
+
+    /* Create WebSocket queue */
+    s_ws_queue = xQueueCreate(16, sizeof(ws_frame_t *));
+    if (!s_ws_queue) {
+        ESP_LOGE(k_tag, "Failed to create WebSocket queue");
+        vSemaphoreDelete(s_ws_clients_mutex);
+        return ESP_ERR_NO_MEM;
+    }
+
+    /* Create WebSocket send task */
+    if (xTaskCreate(ws_send_task, "ws_send", 4096, NULL, 3, &s_ws_task_handle) != pdPASS) {
+        ESP_LOGE(k_tag, "Failed to create WebSocket send task");
+        vQueueDelete(s_ws_queue);
+        vSemaphoreDelete(s_ws_clients_mutex);
+        return ESP_ERR_NO_MEM;
+    }
+
+    /* Create status timer for periodic metrics broadcast */
+    esp_timer_create_args_t timer_args = {
+        .callback = status_timer_callback,
+        .arg = NULL,
+        .name = "ws_status",
+    };
+    if (esp_timer_create(&timer_args, &s_status_timer) != ESP_OK) {
+        ESP_LOGE(k_tag, "Failed to create status timer");
+        vTaskDelete(s_ws_task_handle);
+        vQueueDelete(s_ws_queue);
+        vSemaphoreDelete(s_ws_clients_mutex);
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    ESP_RETURN_ON_ERROR(httpd_start(&s_server, &cfg), k_tag, "httpd_start failed");
+
+    const httpd_uri_t routes[] = {
+        /* API endpoints */
+        {.uri = "/api/status", .method = HTTP_GET, .handler = handle_get_status, .is_websocket = false},
+        {.uri = "/api/hardware", .method = HTTP_GET, .handler = handle_get_hardware, .is_websocket = false},
+        {.uri = "/api/config", .method = HTTP_GET, .handler = handle_get_config, .is_websocket = false},
+        {.uri = "/api/config", .method = HTTP_POST, .handler = handle_post_config, .is_websocket = false},
+        {.uri = "/api/config/reset", .method = HTTP_POST, .handler = handle_post_config_reset, .is_websocket = false},
+        {.uri = "/api/reboot", .method = HTTP_POST, .handler = handle_post_reboot, .is_websocket = false},
+        {.uri = "/api/logs", .method = HTTP_GET, .handler = handle_get_logs, .is_websocket = false},
+        {.uri = "/api/unlock", .method = HTTP_POST, .handler = handle_post_unlock, .is_websocket = false},
+
+        /* WebSocket endpoint */
+        {.uri = "/api/ws", .method = HTTP_GET, .handler = handle_websocket, .is_websocket = true, .ws_post_handshake_cb = handle_ws_post_handshake},
+
+        /* OTA endpoint */
+        {.uri = "/api/ota", .method = HTTP_POST, .handler = handle_ota_upload, .is_websocket = false},
+
+        /* WiFi scanning (for captive portal) */
+        {.uri = "/api/wifi_scan", .method = HTTP_GET, .handler = handle_wifi_scan, .is_websocket = false},
+
+        /* Captive portal redirect */
+        {.uri = "/generate_204", .method = HTTP_GET, .handler = handle_captive_portal_redirect, .is_websocket = false},
+        {.uri = "/redirect", .method = HTTP_GET, .handler = handle_captive_portal_redirect, .is_websocket = false},
+
+        /* Catch-all last: any other GET returns the UI */
+        {.uri = "/*", .method = HTTP_GET, .handler = handle_index, .is_websocket = false},
+    };
+
+    for (size_t i = 0; i < sizeof(routes) / sizeof(routes[0]); i++) {
+        const esp_err_t err = httpd_register_uri_handler(s_server, &routes[i]);
+        if (err != ESP_OK) {
+            ESP_LOGE(k_tag, "route %s failed: %s", routes[i].uri, esp_err_to_name(err));
+        }
+    }
+
+    ESP_LOGI(k_tag, "configuration UI listening on port %d (WebSocket enabled)", cfg.server_port);
+    return ESP_OK;
+}
+
+esp_err_t web_server_stop(void)
+{
+    if (!s_server) {
+        return ESP_OK;
+    }
+
+    /* Stop status timer */
+    if (s_status_timer) {
+        esp_timer_stop(s_status_timer);
+        esp_timer_delete(s_status_timer);
+        s_status_timer = NULL;
+    }
+
+    /* Stop HTTP server */
+    const esp_err_t err = httpd_stop(s_server);
+    s_server = NULL;
+
+    /* Stop WebSocket send task */
+    if (s_ws_task_handle) {
+        vTaskDelete(s_ws_task_handle);
+        s_ws_task_handle = NULL;
+    }
+
+    /* Delete WebSocket queue */
+    if (s_ws_queue) {
+        vQueueDelete(s_ws_queue);
+        s_ws_queue = NULL;
+    }
+
+    /* Delete WebSocket clients mutex */
+    if (s_ws_clients_mutex) {
+        vSemaphoreDelete(s_ws_clients_mutex);
+        s_ws_clients_mutex = NULL;
+    }
+
+    /* Delete sessions mutex */
+    if (s_sessions_mutex) {
+        vSemaphoreDelete(s_sessions_mutex);
+        s_sessions_mutex = NULL;
+    }
+
+    return err;
+}
