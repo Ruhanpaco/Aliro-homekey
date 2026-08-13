@@ -90,17 +90,30 @@ def check_sdkconfig_defaults() -> None:
         problems.append(f"{name} set in {', '.join(sorted(where))} but declared in no Kconfig")
 
 
+# Argument keywords of idf_component_register. A dependency list ends at the
+# next one of these, not at the next newline.
+CMAKE_KEYWORDS = {
+    "SRCS", "SRC_DIRS", "INCLUDE_DIRS", "PRIV_INCLUDE_DIRS", "REQUIRES",
+    "PRIV_REQUIRES", "EMBED_FILES", "EMBED_TXTFILES", "LDFRAGMENTS",
+    "KCONFIG", "KCONFIG_PROJBUILD", "WHOLE_ARCHIVE", "REQUIRED_IDF_TARGETS",
+}
+
+
 def component_requires() -> dict[str, set[str]]:
     """Map component name -> everything it names in REQUIRES/PRIV_REQUIRES."""
     result = {}
     for cmake in list(COMPONENTS.glob("*/CMakeLists.txt")) + [ROOT / "main" / "CMakeLists.txt"]:
         name = "main" if cmake.parent.name == "main" else cmake.parent.name
-        text = cmake.read_text()
+        # These calls contain no nested parens, so the first ')' ends the call.
+        body = re.search(r"idf_component_register\(([^)]*)\)", cmake.read_text(), re.S)
         deps: set[str] = set()
-        for match in re.finditer(r"(?:PRIV_)?REQUIRES\s+((?:[\w.]+\s*)+)", text):
-            deps.update(match.group(1).split())
-        deps.discard("REQUIRES")
-        deps.discard("PRIV_REQUIRES")
+        if body:
+            collecting = False
+            for token in re.findall(r'"[^"]*"|[\w./${}-]+', body.group(1)):
+                if token in CMAKE_KEYWORDS:
+                    collecting = token in ("REQUIRES", "PRIV_REQUIRES")
+                elif collecting and not token.startswith('"'):
+                    deps.add(token)
         result[name] = deps
     return result
 
@@ -114,6 +127,34 @@ def public_headers() -> dict[str, str]:
         for header in list(component.glob("include/*.h")) + list(component.glob("*.h")):
             owners[header.name] = component.name
     return owners
+
+
+# ESP-IDF components this project is allowed to name in REQUIRES. Anything
+# else is either a local component or a typo — and a typo here fails the build
+# at CMake time with "unknown name", which is a slow way to learn it.
+# Notably: OTA lives in `app_update`, there is no `esp_ota_ops` component.
+KNOWN_IDF_COMPONENTS = {
+    "app_update", "bt", "console", "driver", "esp_adc", "esp_app_format",
+    "esp_common", "esp_driver_gpio", "esp_driver_i2c", "esp_driver_spi",
+    "esp_event", "esp_hw_support", "esp_http_client", "esp_http_server",
+    "esp_netif", "esp_partition", "esp_pm", "esp_ringbuf", "esp_rom",
+    "esp_system", "esp_timer", "esp_wifi", "espressif__esp_aliro_lib",
+    "esp_aliro_lib", "freertos", "hal", "heap", "json", "log", "lwip",
+    "mbedtls", "mqtt", "newlib", "nvs_flash", "protocol_examples_common",
+    "pthread", "soc", "spi_flash", "vfs", "wpa_supplicant",
+}
+
+
+def check_requires_exist() -> None:
+    local = {c.name for c in COMPONENTS.iterdir() if c.is_dir()}
+    for component, deps in component_requires().items():
+        for dep in sorted(deps):
+            if dep in local or dep in KNOWN_IDF_COMPONENTS:
+                continue
+            problems.append(
+                f"component '{component}' requires '{dep}', which is neither a local "
+                f"component nor a known ESP-IDF one"
+            )
 
 
 def check_component_dependencies() -> None:
@@ -160,6 +201,7 @@ DEFAULTS_USED = set(sdkconfig_defaults())
 
 check_config_symbols()
 check_sdkconfig_defaults()
+check_requires_exist()
 check_component_dependencies()
 check_embedded_symbols()
 
