@@ -98,9 +98,22 @@ idf.py -p /dev/ttyUSB0 flash monitor
 The first build generates a development reader identity into `main/certs/`
 (gitignored — see the README there for what it is and is not).
 
+### Without a toolchain
+
+`site/index.html` is a single static page that does the same job in a browser:
+it generates a P-256 reader identity with `crypto.subtle`, packs it into an NVS
+partition image, and writes it over USB with WebSerial. It has no backend, so
+the private keys never leave the tab. A board provisioned that way gets a unique
+identity instead of the development one compiled into the image; `app_main`
+prefers the NVS keys when they are present and falls back otherwise.
+
+Needs Chrome, Edge or Opera on a desktop — no other browser implements
+WebSerial.
+
 ## Layout
 
 ```text
+├── site/               static GitHub Pages: browser flasher + project page
 ├── main/               wiring only: load config, start the reader, then the network
 │   └── certs/          reader key pair + allowed credentials (generated, never committed)
 ├── components/

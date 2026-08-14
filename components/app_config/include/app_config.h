@@ -172,6 +172,19 @@ esp_err_t app_config_from_json(const char *json, app_config_t *cfg, char *err_ms
 /** @brief JSON description of this chip's usable pins, for the web UI. */
 char *app_config_hardware_caps_json(void);
 
+/**
+ * @brief Read a provisioned PEM key out of NVS.
+ *
+ * The browser flasher in site/ writes a per-device reader identity into the
+ * @c aliro namespace under @c rdr_pub, @c rdr_priv and @c cred_pub. When a key
+ * is absent the caller falls back to the development identity compiled into
+ * the application, so an unprovisioned board still boots and runs.
+ *
+ * @param[in] key NVS key name
+ * @return Heap-allocated NUL-terminated PEM the caller frees, or NULL.
+ */
+char *app_config_load_pem(const char *key);
+
 /** @brief Parse the 32-char hex group identifier into 16 bytes. */
 esp_err_t app_config_parse_group_id(const char *hex, uint8_t *out, size_t out_len);
 

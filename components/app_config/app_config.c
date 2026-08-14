@@ -576,6 +576,45 @@ static esp_err_t load_from_nvs(app_config_t *cfg)
     return err;
 }
 
+char *app_config_load_pem(const char *key)
+{
+    if (!key) {
+        return NULL;
+    }
+
+    nvs_handle_t handle;
+    if (nvs_open(k_nvs_namespace, NVS_READONLY, &handle) != ESP_OK) {
+        return NULL;
+    }
+
+    size_t len = 0;
+    if (nvs_get_str(handle, key, NULL, &len) != ESP_OK || len == 0) {
+        nvs_close(handle);
+        return NULL;
+    }
+
+    char *pem = malloc(len);
+    if (!pem) {
+        nvs_close(handle);
+        ESP_LOGE(k_tag, "out of memory reading '%s'", key);
+        return NULL;
+    }
+
+    const esp_err_t err = nvs_get_str(handle, key, pem, &len);
+    nvs_close(handle);
+
+    if (err != ESP_OK) {
+        free(pem);
+        return NULL;
+    }
+
+    /* mbedTLS wants the terminator counted, and nvs_get_str reports a length
+     * that already includes it -- the same convention the embedded PEMs use,
+     * so a provisioned key and a compiled-in one are interchangeable. */
+    ESP_LOGI(k_tag, "using provisioned '%s' from NVS (%u bytes)", key, (unsigned)len);
+    return pem;
+}
+
 static esp_err_t store_to_nvs(const app_config_t *cfg)
 {
     char *json = app_config_to_json(cfg, true);

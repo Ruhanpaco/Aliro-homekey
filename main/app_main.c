@@ -26,6 +26,7 @@
 #include <nvs_flash.h>
 #include <sdkconfig.h>
 
+#include <stdlib.h>
 #include <string.h>
 
 /* Embedded by main/CMakeLists.txt from main/certs/ (TEXT: NUL-terminated). */
@@ -37,6 +38,54 @@ extern const char credential_pubkey_pem_end[] asm("_binary_credential_pubkey_pem
 static const char *const k_tag = "aliro/app";
 
 static const nfc_transport_t *s_transport;
+
+/*
+ * Identity actually in use. A board provisioned by the browser flasher in
+ * site/ has its own key pair in NVS; anything else falls back to the
+ * development identity compiled into this image. Never freed: the SDK holds
+ * these for as long as the reader exists.
+ */
+static struct {
+    const char *reader_pub;
+    const char *reader_priv;
+    const char *credential_pub;
+    size_t credential_pub_len;
+    bool provisioned;
+} s_identity;
+
+static void load_identity(void)
+{
+    char *reader_pub = app_config_load_pem("rdr_pub");
+    char *reader_priv = app_config_load_pem("rdr_priv");
+    char *credential_pub = app_config_load_pem("cred_pub");
+
+    /* Both halves or neither: a public key from NVS paired with the built-in
+     * private key is an identity that cannot complete a transaction, and it
+     * would fail in a way that looks like a protocol bug. */
+    if (reader_pub && reader_priv) {
+        s_identity.reader_pub = reader_pub;
+        s_identity.reader_priv = reader_priv;
+        s_identity.provisioned = true;
+    } else {
+        if (reader_pub || reader_priv) {
+            ESP_LOGW(k_tag, "NVS holds only half a reader key pair; ignoring it");
+        }
+        free(reader_pub);
+        free(reader_priv);
+        s_identity.reader_pub = reader_pubkey_pem_start;
+        s_identity.reader_priv = reader_privkey_pem_start;
+    }
+
+    if (credential_pub) {
+        s_identity.credential_pub = credential_pub;
+        s_identity.credential_pub_len = strlen(credential_pub) + 1;
+    } else {
+        s_identity.credential_pub = credential_pubkey_pem_start;
+        s_identity.credential_pub_len = (size_t)(credential_pubkey_pem_end - credential_pubkey_pem_start);
+    }
+
+    ESP_LOGI(k_tag, "reader identity: %s", s_identity.provisioned ? "provisioned (NVS)" : "development (built in)");
+}
 
 static const char *transport_name(void)
 {
@@ -58,8 +107,8 @@ static esp_err_t start_reader(const app_config_t *cfg)
     s_transport = nfc_transport_from_config(&cfg->nfc);
 
     aliro_reader_config_t reader_cfg = {
-        .reader_pubkey_pem = reader_pubkey_pem_start,
-        .reader_privkey_pem = reader_privkey_pem_start,
+        .reader_pubkey_pem = s_identity.reader_pub,
+        .reader_privkey_pem = s_identity.reader_priv,
         .transport = s_transport,
         .lookup_credential = access_control_lookup_credential,
         .on_result = access_control_on_reader_result,
@@ -87,6 +136,9 @@ void app_main(void)
     const app_config_t *cfg = app_config_get();
     ESP_LOGI(k_tag, "device '%s'", cfg->device_name);
 
+    /* After app_config_init, so NVS is known good before it is read again. */
+    load_identity();
+
     /*
      * Past this point nothing aborts the boot. A reader that cannot read is
      * useless, but a reader in a boot loop cannot be reconfigured to fix
@@ -101,9 +153,8 @@ void app_main(void)
     if (aliro_reader_sdk_init(CONFIG_ALIRO_READER_FAST_TRANSACTION_SLOTS) != ESP_OK) {
         ESP_LOGE(k_tag, "Aliro SDK did not initialize; the reader is disabled this boot");
     } else {
-        if (access_control_add_credential(credential_pubkey_pem_start,
-                                          (size_t)(credential_pubkey_pem_end - credential_pubkey_pem_start),
-                                          "dev-credential") != ESP_OK) {
+        if (access_control_add_credential(s_identity.credential_pub, s_identity.credential_pub_len,
+                                          s_identity.provisioned ? "provisioned" : "dev-credential") != ESP_OK) {
             ESP_LOGE(k_tag, "development credential rejected; the reader will refuse every tap");
         }
         if (start_reader(cfg) != ESP_OK) {

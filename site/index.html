@@ -3,282 +3,763 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Aliro HomeKey — an open Aliro reader for the ESP32</title>
-<meta name="description" content="Open-source ESP32 reader for Aliro, the cross-ecosystem standard for phone-based access credentials. Flash it from your browser.">
+<title>Aliro HomeKey — browser flasher</title>
+<meta name="description" content="Generate a unique Aliro reader identity in your browser and flash it to an ESP32 over USB. No server, no upload, no install.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><text y='20' font-size='20'>%F0%9F%94%91</text></svg>">
-<style>
-/* Same palette the firmware's own console uses: daisyUI `dracula`. One product,
-   one look. */
-:root{
-  color-scheme:dark;
-  --base-100:oklch(28.822% 0.022 277.508);
-  --base-200:oklch(26.805% 0.02 277.508);
-  --base-300:oklch(24.787% 0.019 277.508);
-  --content:oklch(97.747% 0.007 106.545);
-  --primary:oklch(75.461% 0.183 346.812);
-  --primary-content:oklch(15.092% 0.036 346.812);
-  --info:oklch(88.263% 0.093 212.846);
-  --success:oklch(87.099% 0.219 148.024);
-  --warning:oklch(95.533% 0.134 112.757);
-  --warning-content:oklch(19.106% 0.026 112.757);
-  --error:oklch(68.22% 0.206 24.43);
-  --radius:1rem;
-  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-  --muted:color-mix(in oklab,var(--content) 62%,transparent);
-  --line:color-mix(in oklab,var(--content) 14%,transparent);
-}
-*{box-sizing:border-box}
-html{scroll-behavior:smooth}
-body{margin:0;background:var(--base-100);color:var(--content);
-  font:16px/1.65 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
-@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
-a{color:var(--info)}
-.wrap{max-width:860px;margin:0 auto;padding:0 20px}
-h1,h2,h3{line-height:1.2;text-wrap:balance;margin:0}
-code,kbd{font-family:var(--mono);font-size:.9em;background:var(--base-300);
-  border-radius:6px;padding:2px 6px}
-
-header{border-bottom:1px solid var(--line);padding:56px 0 40px}
-.eyebrow{font:600 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;
-  color:var(--primary);margin-bottom:14px}
-header h1{font-size:clamp(30px,6vw,46px);letter-spacing:-.02em}
-header p.lede{font-size:clamp(16px,2.4vw,19px);color:var(--muted);margin:14px 0 0;max-width:60ch}
-.cta{display:flex;flex-wrap:wrap;gap:12px;margin-top:26px}
-.btn{display:inline-flex;align-items:center;gap:8px;padding:11px 18px;border-radius:10px;
-  font-weight:600;font-size:15px;text-decoration:none;border:1px solid var(--line);
-  color:var(--content);background:var(--base-200)}
-.btn:hover{border-color:var(--primary)}
-.btn.primary{background:var(--primary);color:var(--primary-content);border-color:var(--primary)}
-
-section{padding:44px 0;border-bottom:1px solid var(--line)}
-section h2{font-size:24px;letter-spacing:-.01em}
-section > .wrap > p{color:var(--muted);max-width:68ch}
-
-.banner{border-radius:var(--radius);padding:16px 20px;margin:28px 0 0;
-  background:color-mix(in oklab,var(--warning) 16%,transparent);
-  border:1px solid color-mix(in oklab,var(--warning) 40%,transparent)}
-.banner strong{color:var(--warning)}
-.banner p{margin:6px 0 0;color:var(--content);font-size:15px}
-
-pre.flow{background:var(--base-200);border:1px solid var(--line);border-radius:var(--radius);
-  padding:20px;overflow-x:auto;font-family:var(--mono);font-size:13px;line-height:1.7;
-  color:var(--muted);margin:24px 0 0}
-
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px;margin-top:26px}
-.card{background:var(--base-200);border:1px solid var(--line);border-radius:var(--radius);padding:20px}
-.card h3{font-size:15px;margin-bottom:6px}
-.card p{margin:0;font-size:14px;color:var(--muted)}
-
-ul.plain{margin:18px 0 0;padding-left:20px;color:var(--muted)}
-ul.plain li{margin-bottom:8px}
-ul.plain strong{color:var(--content)}
-
-/* --- flasher --- */
-.flash-card{background:var(--base-200);border:1px solid var(--line);
-  border-radius:var(--radius);padding:26px;margin-top:26px}
-.steps{counter-reset:s;list-style:none;padding:0;margin:0 0 22px}
-.steps li{counter-increment:s;position:relative;padding-left:38px;margin-bottom:12px;
-  color:var(--muted);font-size:15px}
-.steps li::before{content:counter(s);position:absolute;left:0;top:1px;
-  width:24px;height:24px;border-radius:50%;display:grid;place-items:center;
-  background:var(--base-300);color:var(--content);font:600 12px/1 var(--mono)}
-.steps li strong{color:var(--content)}
-esp-web-install-button{--esp-tools-button-color:var(--primary-content);
-  --esp-tools-button-text-color:var(--primary-content)}
-.unsupported{display:none;border-radius:10px;padding:14px 16px;font-size:14px;
-  background:color-mix(in oklab,var(--error) 14%,transparent);
-  border:1px solid color-mix(in oklab,var(--error) 40%,transparent)}
-.fallback{margin-top:22px;font-size:14px;color:var(--muted)}
-.fallback pre{background:var(--base-300);border-radius:10px;padding:14px;overflow-x:auto;
-  font-family:var(--mono);font-size:12.5px;color:var(--content)}
-table{width:100%;border-collapse:collapse;margin-top:18px;font-size:14px}
-th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line)}
-th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.06em}
-td code{background:var(--base-300)}
-
-footer{padding:36px 0 56px;color:var(--muted);font-size:14px}
-footer a{color:var(--muted)}
-</style>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  theme: { extend: {
+    colors: {
+      base:  { 100:'#282a36', 200:'#21222c', 300:'#191a21' },
+      brand: '#ff79c6',
+      ink:   '#f8f8f2',
+      muted: '#a4a7b8',
+      ok:    '#50fa7b',
+      warn:  '#f1fa8c',
+      bad:   '#ff5555',
+      info:  '#8be9fd',
+    },
+    fontFamily: { mono: ['ui-monospace','SFMono-Regular','Menlo','Consolas','monospace'] },
+  }}
+};
+</script>
 </head>
-<body>
+<body class="bg-base-100 text-ink font-sans antialiased">
 
-<header>
-  <div class="wrap">
-    <div class="eyebrow">Open source · ESP32 · Apache-2.0</div>
-    <h1>Aliro HomeKey</h1>
-    <p class="lede">An open-source door reader for <strong>Aliro</strong> — the
-      Connectivity Standards Alliance standard that Apple, Google and Samsung
-      wallets all implement. Build the reader once, and any compliant wallet can
-      carry a key for it.</p>
-    <div class="cta">
-      <a class="btn primary" href="#flash">Flash it from your browser</a>
-      <a class="btn" href="https://github.com/Ruhanpaco/Aliro-homekey">View on GitHub</a>
+<div class="max-w-5xl mx-auto px-5 py-10">
+
+  <header class="mb-8">
+    <div class="font-mono text-xs tracking-[0.14em] uppercase text-brand mb-3">
+      Serverless · WebSerial · Apache-2.0
     </div>
+    <h1 class="text-4xl font-bold tracking-tight">Aliro HomeKey flasher</h1>
+    <p class="text-muted mt-3 max-w-2xl leading-relaxed">
+      Generates a unique Aliro reader identity in this tab, packs it into an
+      ESP-IDF NVS partition image, and writes it to an ESP32 over USB together
+      with the firmware. Nothing is uploaded and no server is involved.
+    </p>
+    <p class="text-muted mt-2 text-sm">
+      <a class="text-info hover:underline" href="about.html">What this project is</a>
+      &nbsp;·&nbsp;
+      <a class="text-info hover:underline" href="https://github.com/Ruhanpaco/Aliro-homekey">Source on GitHub</a>
+    </p>
+  </header>
 
-    <div class="banner">
-      <strong>v0.1 — beta, and honest about it.</strong>
-      <p>The firmware compiles for ESP32 and ESP32-S3 and boots into a
-        configuration UI, but there is <strong>no NFC chip driver yet</strong>, so it
-        cannot read a card or complete an Aliro transaction. It has also never
-        been run on hardware. Flash it on a bench, not on a door.</p>
-    </div>
+  <!-- Security notice -->
+  <div class="rounded-xl border border-ok/40 bg-ok/10 p-5 mb-6">
+    <h2 class="font-semibold text-ok flex items-center gap-2">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3l7 4v5c0 4.4-3 8.3-7 9-4-0.7-7-4.6-7-9V7l7-4z"/></svg>
+      Your private keys never leave this tab
+    </h2>
+    <p class="text-sm text-ink/90 mt-2 leading-relaxed">
+      Key generation runs entirely in <code class="bg-base-300 rounded px-1">crypto.subtle</code>,
+      the browser's own crypto engine. This page has no backend: it is a static
+      file on GitHub Pages, it makes no network request while flashing, and the
+      generated private keys exist only in this tab's memory and in whatever you
+      choose to download. Close the tab and they are gone — so save the bundle if
+      you want to keep the identity.
+    </p>
   </div>
-</header>
 
-<section>
-  <div class="wrap">
-    <h2>The idea</h2>
-    <p>Putting a key in a phone used to mean picking one vendor's stack — Apple
-      Home Key for iPhones, something else for Android. Aliro is the common
-      protocol underneath all of them.</p>
-<pre class="flow"> Apple Wallet   Google Wallet   Samsung Wallet   other Aliro wallets
-        └───────────────┴───────┬───────┴────────────────┘
-                                │  Aliro (one protocol, all of them)
-                                ▼
-                        ESP32 Aliro Reader     ← this project
-                                │
-                                ▼
-                         Access / Lock</pre>
-  </div>
-</section>
-
-<section>
-  <div class="wrap">
-    <h2>What's in it</h2>
-    <div class="grid">
-      <div class="card">
-        <h3>Aliro transactions</h3>
-        <p>Built on Espressif's prebuilt <code>esp_aliro_lib</code>: reader
-          lifecycle, session loop, expedited phase, and credential lookup by
-          Aliro key slot.</p>
-      </div>
-      <div class="card">
-        <h3>Configure without rebuilding</h3>
-        <p>NFC chip, bus, every pin, lock output, Wi-Fi and MQTT live in NVS and
-          are edited in the browser. Pins wired to flash are never offered.</p>
-      </div>
-      <div class="card">
-        <h3>Web console on the device</h3>
-        <p>Info, MQTT, Actions, Misc and Logs pages, served by the ESP32 itself
-          with no bundler and no CDN.</p>
-      </div>
-      <div class="card">
-        <h3>Setup access point</h3>
-        <p>A board with no credentials still comes up reachable, with a captive
-          portal at <code>192.168.4.1</code>.</p>
-      </div>
-      <div class="card">
-        <h3>MQTT &amp; Home Assistant</h3>
-        <p>Retained lock state, per-tap events, unlock commands, and discovery so
-          the lock appears without YAML. Off by default.</p>
-      </div>
-      <div class="card">
-        <h3>Serial debug console</h3>
-        <p><code>status</code>, <code>nfc</code>, <code>unlock</code>,
-          <code>wifi</code> and more at 115200 baud — works with no network at
-          all, which is how a fresh board arrives.</p>
-      </div>
-    </div>
-  </div>
-</section>
-
-<section id="flash">
-  <div class="wrap">
-    <h2>Flash it</h2>
-    <p>Connect an ESP32 over USB and install the firmware straight from this
-      page. Nothing to download, nothing to install.</p>
-
-    <div class="flash-card">
-      <ol class="steps">
-        <li>Plug the board in over USB. It needs <strong>4&nbsp;MB of flash</strong> — an
-          ESP32-WROOM-32 DevKitC or an ESP32-S3 DevKit.</li>
-        <li>Press <strong>Connect</strong> and pick the serial port. On a first install,
-          choose <strong>Erase device</strong> when offered.</li>
-        <li>When it finishes, the reader starts a Wi-Fi network called
-          <strong><code>Aliro-Setup-XXXX</code></strong>, password
-          <code>aliro1234</code>. Join it and the configuration page opens.</li>
-      </ol>
-
-      <esp-web-install-button manifest="manifest.json">
-        <button slot="activate" class="btn primary">Connect &amp; install</button>
-        <span slot="unsupported" class="unsupported" style="display:block">
-          This browser can't talk to serial ports. Use <strong>Chrome</strong> or
-          <strong>Edge</strong> on a desktop — Safari and Firefox don't implement
-          Web Serial.
-        </span>
-        <span slot="not-allowed" class="unsupported" style="display:block">
-          Serial access needs a secure connection (https).
-        </span>
-      </esp-web-install-button>
-
-      <div class="fallback">
-        <p>Prefer the command line? Grab
-          <code>esp32.firmware.factory.bin</code> from the
-          <a href="https://github.com/Ruhanpaco/Aliro-homekey/releases">releases page</a>
-          and write it at offset&nbsp;<code>0</code>:</p>
-        <pre>esptool.py --chip esp32 --port /dev/ttyUSB0 --baud 460800 \
-  write_flash 0x0 esp32.firmware.factory.bin</pre>
-      </div>
-    </div>
-
-    <table>
-      <thead><tr><th>File</th><th>Offset</th><th>What it is</th></tr></thead>
-      <tbody>
-        <tr><td><code>&lt;target&gt;.firmware.factory.bin</code></td><td><code>0x0</code></td>
-            <td>Everything — bootloader, partition table, OTA data and app — padded to the full flash. Use this.</td></tr>
-        <tr><td><code>&lt;target&gt;.firmware.bin</code></td><td><code>0x20000</code></td>
-            <td>The application alone, for a faster reflash once a board is already set up.</td></tr>
-      </tbody>
-    </table>
-  </div>
-</section>
-
-<section>
-  <div class="wrap">
-    <h2>After it boots</h2>
-    <p>Open a serial monitor at <strong>115200 baud</strong> and press Enter for a
-      prompt. The console works before Wi-Fi exists, which is the point.</p>
-<pre class="flow">aliro&gt; status     device, network, reader and MQTT state
-aliro&gt; nfc        NFC wiring, and what the driver situation is
-aliro&gt; unlock     drive the lock output now (GPIO 2 = on-board LED)
-aliro&gt; wifi MyNetwork hunter2
-aliro&gt; restart</pre>
-    <p style="margin-top:20px"><code>unlock</code> lighting the on-board LED for three
-      seconds is the first end-to-end proof that configuration, access control and
-      the GPIO output all work together.</p>
-  </div>
-</section>
-
-<section>
-  <div class="wrap">
-    <h2>Known limitations</h2>
-    <ul class="plain">
-      <li><strong>No NFC driver.</strong> The transport is a stub that never detects a
-        device. This is the single biggest missing piece.</li>
-      <li><strong>No authentication on the web UI.</strong> Anyone on the network can
-        reconfigure the reader.</li>
-      <li><strong>Credential provisioning is unsolved.</strong> How a real wallet comes
-        to hold a credential for this reader is an ecosystem process the SDK does
-        not cover.</li>
-      <li><strong>Never run on hardware.</strong> Booting, Wi-Fi and the lock output are
-        all expected to work and none have been observed.</li>
+  <!-- Honesty about what this firmware is -->
+  <div class="rounded-xl border border-warn/40 bg-warn/10 p-5 mb-8">
+    <h2 class="font-semibold text-warn">Read this before flashing a door</h2>
+    <ul class="text-sm text-ink/90 mt-2 space-y-1 list-disc pl-5 leading-relaxed">
+      <li>There is <strong>no NFC chip driver yet</strong>. The reader boots, serves
+          its web console and drives the lock GPIO, but cannot read a card.</li>
+      <li>The generated identity is a <strong>self-signed development identity</strong>,
+          not a provisioned Aliro credential. No shipping wallet will accept it.
+          It exists so the firmware and a test device can complete a transaction
+          on a bench.</li>
+      <li>Writing the NVS image <strong>erases the stored configuration</strong>,
+          the Wi-Fi credentials and the Aliro SDK's fast-transaction keys.</li>
     </ul>
   </div>
-</section>
 
-<footer>
-  <div class="wrap">
-    <p>Built on <a href="https://github.com/espressif/esp-aliro">espressif/esp-aliro</a>.
-      Structure, GPIO tables and UI style adapted from
-      <a href="https://github.com/rednblkx/HomeKey-ESP32">HomeKey-ESP32</a> (MIT),
-      with <a href="https://github.com/kormax/aliro">kormax/aliro</a> as the protocol
-      reference. Apache-2.0.</p>
-    <p>Aliro is a trademark of the Connectivity Standards Alliance. This project is
-      not affiliated with or endorsed by the CSA, Espressif, Apple, Google or
-      Samsung.</p>
+  <div class="grid md:grid-cols-2 gap-5 mb-6">
+
+    <!-- Settings -->
+    <section class="rounded-xl border border-ink/10 bg-base-200 p-5">
+      <h2 class="font-semibold mb-4">Settings</h2>
+
+      <label class="block text-sm mb-1 text-muted">Device name</label>
+      <input id="deviceName" type="text" value="aliro-reader"
+             class="w-full bg-base-300 border border-ink/10 rounded-lg px-3 py-2 text-sm mb-4 focus:outline-none focus:border-brand">
+
+      <label class="block text-sm mb-1 text-muted">Wi-Fi SSID <span class="text-ink/40">(optional)</span></label>
+      <input id="wifiSsid" type="text" placeholder="leave empty to use the setup access point"
+             class="w-full bg-base-300 border border-ink/10 rounded-lg px-3 py-2 text-sm mb-4 focus:outline-none focus:border-brand">
+
+      <label class="block text-sm mb-1 text-muted">Wi-Fi password</label>
+      <input id="wifiPass" type="password" autocomplete="new-password"
+             class="w-full bg-base-300 border border-ink/10 rounded-lg px-3 py-2 text-sm mb-4 focus:outline-none focus:border-brand">
+
+      <label class="block text-sm mb-1 text-muted">Lock output GPIO</label>
+      <input id="lockGpio" type="number" value="2" min="0" max="48"
+             class="w-full bg-base-300 border border-ink/10 rounded-lg px-3 py-2 text-sm mb-4 focus:outline-none focus:border-brand">
+
+      <label class="block text-sm mb-1 text-muted">Install mode</label>
+      <select id="mode"
+              class="w-full bg-base-300 border border-ink/10 rounded-lg px-3 py-2 text-sm mb-4 focus:outline-none focus:border-brand">
+        <option value="full">Full install — bootloader, table, OTA data, identity, app</option>
+        <option value="update">Identity + app only — 0x9000 and 0x20000</option>
+      </select>
+
+      <label class="block text-sm mb-1 text-muted">Baud rate</label>
+      <select id="baud"
+              class="w-full bg-base-300 border border-ink/10 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand">
+        <option>921600</option><option selected>460800</option>
+        <option>230400</option><option>115200</option>
+      </select>
+    </section>
+
+    <!-- Firmware source -->
+    <section class="rounded-xl border border-ink/10 bg-base-200 p-5">
+      <h2 class="font-semibold mb-4">Firmware images</h2>
+      <p class="text-sm text-muted mb-3 leading-relaxed">
+        Drop in the contents of the <code class="bg-base-300 rounded px-1">firmware/</code>
+        folder from a release, or from your own
+        <code class="bg-base-300 rounded px-1">idf.py build</code> via
+        <code class="bg-base-300 rounded px-1">tools/package_firmware.sh</code>.
+      </p>
+
+      <input id="files" type="file" multiple
+             class="w-full text-sm text-muted file:mr-3 file:py-2 file:px-4 file:rounded-lg
+                    file:border-0 file:text-sm file:font-semibold file:bg-brand file:text-base-300
+                    hover:file:opacity-90 cursor-pointer mb-4">
+
+      <button id="btnFetch"
+              class="w-full border border-ink/15 rounded-lg px-3 py-2 text-sm hover:border-brand transition mb-4">
+        …or load the images published beside this page
+      </button>
+
+      <div id="fileList" class="font-mono text-xs text-muted space-y-1">
+        <div class="text-ink/40">no images loaded</div>
+      </div>
+    </section>
   </div>
-</footer>
 
-<script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js"></script>
+  <!-- Actions -->
+  <section class="rounded-xl border border-ink/10 bg-base-200 p-5 mb-6">
+    <div class="grid sm:grid-cols-2 gap-3">
+      <button id="btnConnect"
+              class="rounded-lg px-4 py-3 font-semibold bg-brand text-base-300 hover:opacity-90 transition disabled:opacity-40 disabled:cursor-not-allowed">
+        1. Connect ESP32
+      </button>
+      <button id="btnFlash" disabled
+              class="rounded-lg px-4 py-3 font-semibold border border-ink/15 hover:border-brand transition disabled:opacity-40 disabled:cursor-not-allowed">
+        2. Generate keys &amp; install
+      </button>
+    </div>
+
+    <div class="mt-4 flex items-center gap-3 text-sm">
+      <span id="dot" class="w-2.5 h-2.5 rounded-full bg-ink/30 shrink-0"></span>
+      <span id="status" class="text-muted">Not connected.</span>
+    </div>
+
+    <div id="progressWrap" class="mt-3 hidden">
+      <div class="h-1.5 bg-base-300 rounded-full overflow-hidden">
+        <div id="progressBar" class="h-full bg-brand transition-[width] duration-150" style="width:0%"></div>
+      </div>
+    </div>
+
+    <div id="unsupported" class="hidden mt-4 rounded-lg border border-bad/40 bg-bad/10 p-3 text-sm">
+      This browser has no Web Serial API. Use desktop <strong>Chrome</strong>,
+      <strong>Edge</strong> or <strong>Opera</strong> — Firefox and Safari do not
+      implement it, and neither does any browser on iOS.
+    </div>
+  </section>
+
+  <!-- Terminal -->
+  <section class="rounded-xl border border-ink/10 bg-base-300 overflow-hidden mb-6">
+    <div class="flex items-center justify-between px-4 py-2 border-b border-ink/10 bg-base-200">
+      <span class="font-mono text-xs uppercase tracking-wider text-muted">Log</span>
+      <button id="btnClear" class="font-mono text-xs text-muted hover:text-ink">clear</button>
+    </div>
+    <pre id="term" class="font-mono text-xs leading-relaxed p-4 h-72 overflow-y-auto whitespace-pre-wrap break-all"></pre>
+  </section>
+
+  <!-- Generated identity -->
+  <section id="identity" class="hidden rounded-xl border border-ink/10 bg-base-200 p-5 mb-6">
+    <h2 class="font-semibold mb-2">Generated identity</h2>
+    <p class="text-sm text-muted mb-4 leading-relaxed">
+      Save this now. The reader's private key is on the chip and nowhere else;
+      the <strong>credential</strong> private key is what a test device needs in
+      order to be recognised by this reader, and it exists only here.
+    </p>
+    <dl id="identityFacts" class="font-mono text-xs space-y-1 mb-4"></dl>
+    <button id="btnDownload"
+            class="rounded-lg px-4 py-2 text-sm font-semibold border border-ink/15 hover:border-brand transition">
+      Download identity bundle (.json)
+    </button>
+  </section>
+
+  <footer class="text-sm text-muted pb-10 leading-relaxed">
+    <p>
+      Built on <a class="text-info hover:underline" href="https://github.com/espressif/esp-aliro">espressif/esp-aliro</a>,
+      flashed with <a class="text-info hover:underline" href="https://github.com/espressif/esptool-js">esptool-js</a>.
+      Aliro is a trademark of the Connectivity Standards Alliance; this project is
+      not affiliated with or endorsed by the CSA, Espressif, Apple, Google or Samsung.
+    </p>
+  </footer>
+</div>
+
+<script type="module">
+/* =====================================================================
+ * Aliro HomeKey browser flasher
+ *
+ * Three independent pieces, in dependency order:
+ *   1. CRC-32 and the NVS partition writer  -- the fiddly part
+ *   2. Identity generation via WebCrypto    -- the security-relevant part
+ *   3. esptool-js glue                      -- the USB part
+ * ===================================================================== */
+
+/* --- terminal ---------------------------------------------------------- */
+
+const term = document.getElementById('term');
+const COLOR = { info:'text-muted', ok:'text-ok', warn:'text-warn', bad:'text-bad', step:'text-info' };
+
+function log(msg, kind = 'info') {
+  const line = document.createElement('div');
+  line.className = COLOR[kind] || COLOR.info;
+  const t = new Date().toTimeString().slice(0, 8);
+  line.textContent = `[${t}] ${msg}`;
+  term.appendChild(line);
+  term.scrollTop = term.scrollHeight;
+}
+document.getElementById('btnClear').onclick = () => { term.textContent = ''; };
+
+function setStatus(text, kind = 'info') {
+  document.getElementById('status').textContent = text;
+  const dot = document.getElementById('dot');
+  dot.className = 'w-2.5 h-2.5 rounded-full shrink-0 ' +
+    ({ ok:'bg-ok', bad:'bg-bad', warn:'bg-warn', busy:'bg-info animate-pulse' }[kind] || 'bg-ink/30');
+}
+
+/* =====================================================================
+ * 1. NVS partition image
+ *
+ * Byte-for-byte what ESP-IDF's nvs_partition_gen.py emits for a v2 page:
+ * 4096-byte pages, a 32-byte header, a 32-byte 2-bits-per-entry state
+ * bitmap, then 126 entries of 32 bytes. Getting any CRC wrong here does
+ * not fail loudly -- nvs_flash_init() just reports a corrupt partition and
+ * the device boots into defaults, so every field below is deliberate.
+ * ===================================================================== */
+
+const PAGE_SIZE = 4096, ENTRY_SIZE = 32, ENTRIES_PER_PAGE = 126;
+const BITMAP_OFFSET = 32, ENTRY_OFFSET = 64;
+const PAGE_ACTIVE = 0xFFFFFFFE, PAGE_FULL = 0xFFFFFFFC, PAGE_VERSION_2 = 0xFE;
+const TYPE_U8 = 0x01, TYPE_STR = 0x21;
+const KEY_FIELD = 16;                 /* 15 characters plus the NUL */
+
+/* ESP-IDF hashes with crc32_le(0xFFFFFFFF, ...), which is a CRC-32 whose
+ * register starts at 0 and is inverted at the end -- not the usual one. */
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+
+function crc32(bytes) {
+  let c = 0;
+  for (let i = 0; i < bytes.length; i++) c = (c >>> 8) ^ CRC_TABLE[(c ^ bytes[i]) & 0xFF];
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+
+class NvsPage {
+  constructor(seq) {
+    this.buf  = new Uint8Array(PAGE_SIZE).fill(0xFF);
+    this.view = new DataView(this.buf.buffer);
+    this.used = 0;
+
+    this.view.setUint32(0, PAGE_ACTIVE, true);
+    this.view.setUint32(4, seq, true);
+    this.buf[8] = PAGE_VERSION_2;
+    /* The header CRC spans bytes 4..28 only, which is why a page can later
+     * be marked FULL (bytes 0..4) without recomputing anything. */
+    this.view.setUint32(28, crc32(this.buf.subarray(4, 28)), true);
+  }
+
+  free() { return ENTRIES_PER_PAGE - this.used; }
+  seal() { this.view.setUint32(0, PAGE_FULL, true); }
+
+  #offsetOf(entry) { return ENTRY_OFFSET + entry * ENTRY_SIZE; }
+
+  /* State 0b11 is empty and 0b10 is written, stored LSB-first, so marking an
+   * entry written means clearing the low bit of its pair. */
+  #markWritten(entry) {
+    const bit = entry * 2;
+    this.buf[BITMAP_OFFSET + (bit >> 3)] &= ~(1 << (bit & 7)) & 0xFF;
+  }
+
+  #finish(entry, span) {
+    const off = this.#offsetOf(entry);
+    /* The entry CRC covers the first four bytes and everything from the key
+     * onwards -- it skips the CRC field itself at bytes 4..8. */
+    const scratch = new Uint8Array(28);
+    scratch.set(this.buf.subarray(off, off + 4), 0);
+    scratch.set(this.buf.subarray(off + 8, off + 32), 4);
+    this.view.setUint32(off + 4, crc32(scratch), true);
+
+    for (let i = 0; i < span; i++) this.#markWritten(entry + i);
+    this.used += span;
+  }
+
+  #head(entry, nsIndex, type, span, key) {
+    const off = this.#offsetOf(entry);
+    this.buf[off]     = nsIndex;
+    this.buf[off + 1] = type;
+    this.buf[off + 2] = span;
+    this.buf[off + 3] = 0xFF;                       /* chunk index: not a blob */
+    const name = new TextEncoder().encode(key);
+    if (name.length >= KEY_FIELD) throw new Error(`NVS key "${key}" is longer than 15 bytes`);
+    this.buf.fill(0xFF, off + 8, off + 8 + KEY_FIELD);
+    this.buf.set(name, off + 8);
+    this.buf[off + 8 + name.length] = 0;
+    return off;
+  }
+
+  writeU8(nsIndex, key, value) {
+    if (this.free() < 1) return false;
+    const entry = this.used;
+    const off = this.#head(entry, nsIndex, TYPE_U8, 1, key);
+    this.buf[off + 24] = value;
+    this.#finish(entry, 1);
+    return true;
+  }
+
+  writeString(nsIndex, key, str) {
+    /* NVS stores strings with their terminator and counts it in the length. */
+    const utf8 = new TextEncoder().encode(str);
+    const data = new Uint8Array(utf8.length + 1);
+    data.set(utf8);
+
+    const span = 1 + Math.ceil(data.length / ENTRY_SIZE);
+    if (span > ENTRIES_PER_PAGE) {
+      throw new Error(`"${key}" is ${data.length} bytes and cannot fit one NVS page`);
+    }
+    if (span > this.free()) return false;
+
+    const entry = this.used;
+    const off = this.#head(entry, nsIndex, TYPE_STR, span, key);
+    this.view.setUint16(off + 24, data.length, true);
+    /* bytes 26..28 stay 0xFF: reserved */
+    this.view.setUint32(off + 28, crc32(data), true);
+    this.buf.set(data, this.#offsetOf(entry + 1));
+    this.#finish(entry, span);
+    return true;
+  }
+}
+
+/**
+ * @param sizeBytes  size of the nvs partition (0xC000 here)
+ * @param namespaces [{ name, items: [{ key, value }] }]
+ */
+function buildNvsImage(sizeBytes, namespaces) {
+  const pages = [];
+  const newPage = () => {
+    if (pages.length) pages[pages.length - 1].seal();
+    const p = new NvsPage(pages.length);
+    pages.push(p);
+    return p;
+  };
+  let page = newPage();
+  let nsIndex = 0;
+
+  for (const ns of namespaces) {
+    nsIndex++;
+    /* Namespace names live in namespace 0 as a u8 holding their index. */
+    if (!page.writeU8(0, ns.name, nsIndex)) { page = newPage(); page.writeU8(0, ns.name, nsIndex); }
+    for (const item of ns.items) {
+      if (!page.writeString(nsIndex, item.key, item.value)) {
+        page = newPage();
+        page.writeString(nsIndex, item.key, item.value);
+      }
+    }
+  }
+
+  const capacity = Math.floor(sizeBytes / PAGE_SIZE);
+  if (pages.length > capacity) throw new Error('generated data overflows the nvs partition');
+
+  /* Untouched pages stay 0xFF, which is what erased flash looks like and what
+   * NVS reads as "uninitialised". */
+  const image = new Uint8Array(sizeBytes).fill(0xFF);
+  pages.forEach((p, i) => image.set(p.buf, i * PAGE_SIZE));
+  return image;
+}
+
+/* =====================================================================
+ * 2. Identity generation
+ *
+ * The Aliro SDK takes the reader key pair as PEM, so WebCrypto's SPKI and
+ * PKCS#8 exports are already the right shape -- base64 them and add the
+ * armour. No certificate is involved: esp_aliro_reader_create() wants raw
+ * keys, and a Matter-style PAA/PAI/DAC chain would be a file this firmware
+ * never opens.
+ * ===================================================================== */
+
+function toPem(der, label) {
+  let bin = '';
+  for (const b of new Uint8Array(der)) bin += String.fromCharCode(b);
+  const body = btoa(bin).match(/.{1,64}/g).join('\n');
+  return `-----BEGIN ${label}-----\n${body}\n-----END ${label}-----\n`;
+}
+
+async function generateP256Pair() {
+  const kp = await crypto.subtle.generateKey({ name:'ECDSA', namedCurve:'P-256' }, true, ['sign','verify']);
+  return {
+    publicPem:  toPem(await crypto.subtle.exportKey('spki',  kp.publicKey),  'PUBLIC KEY'),
+    privatePem: toPem(await crypto.subtle.exportKey('pkcs8', kp.privateKey), 'PRIVATE KEY'),
+  };
+}
+
+function randomHex(byteCount) {
+  return [...crypto.getRandomValues(new Uint8Array(byteCount))]
+    .map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function generateIdentity(settings) {
+  log('generating reader key pair (P-256, in-browser)…', 'step');
+  const reader = await generateP256Pair();
+
+  log('generating test credential key pair…', 'step');
+  const credential = await generateP256Pair();
+
+  /* The group identifier is 16 random bytes shared by every reader in one
+   * installation; the SDK derives a per-reader sub-identifier from it. */
+  const groupId = randomHex(16);
+  const serial  = randomHex(6).toUpperCase();
+  log(`group identifier ${groupId}`, 'ok');
+  log(`serial ${serial}`, 'ok');
+
+  const config = {
+    device: { name: settings.deviceName, group_id: groupId },
+    lock:   { gpio: settings.lockGpio },
+  };
+  if (settings.wifiSsid) {
+    config.net = { ssid: settings.wifiSsid, password: settings.wifiPass };
+  }
+
+  return { reader, credential, groupId, serial, config };
+}
+
+/* The firmware reads these from namespace "aliro": app_config owns "config",
+ * and app_main prefers the stored PEMs over the ones compiled into the app. */
+function identityToNvs(identity, nvsSize) {
+  return buildNvsImage(nvsSize, [{
+    name: 'aliro',
+    items: [
+      { key: 'config',   value: JSON.stringify(identity.config) },
+      { key: 'rdr_pub',  value: identity.reader.publicPem },
+      { key: 'rdr_priv', value: identity.reader.privatePem },
+      { key: 'cred_pub', value: identity.credential.publicPem },
+      { key: 'serial',   value: identity.serial },
+    ],
+  }]);
+}
+
+/* =====================================================================
+ * 3. Flashing
+ * ===================================================================== */
+
+const NVS_OFFSET    = 0x9000;   /* partitions.csv: nvs is first, 0xC000 long */
+const NVS_SIZE      = 0xC000;
+const PARTTAB_OFFSET = 0x8000;
+const OTADATA_OFFSET = 0x15000;
+const APP_OFFSET     = 0x20000; /* two 1.875 MB OTA slots start here */
+
+/* The ESP32 and the ESP32-S2 keep the bootloader at 0x1000; every later chip
+ * puts it at 0x0. Picked from the chip esptool actually found, not from a
+ * dropdown the user could get wrong. */
+function bootloaderOffset(chipName) {
+  return /ESP32-?(S2)?\b/i.test(chipName) && !/S3|C3|C6|C2|H2/i.test(chipName) ? 0x1000 : 0x0;
+}
+
+const images = new Map();   /* filename -> Uint8Array */
+
+function classify(name) {
+  if (name === 'bootloader.bin')                 return 'bootloader';
+  if (name === 'partition-table.bin')            return 'partition-table';
+  if (name === 'ota_data_initial.bin')           return 'ota-data';
+  if (name.endsWith('.firmware.factory.bin'))    return 'factory';
+  if (name.endsWith('.firmware.bin'))            return 'app';
+  if (name === 'aliro_homekey.bin')              return 'app';
+  return null;
+}
+
+function renderFileList() {
+  const box = document.getElementById('fileList');
+  box.innerHTML = '';
+  if (!images.size) {
+    box.innerHTML = '<div class="text-ink/40">no images loaded</div>';
+    return;
+  }
+  for (const [name, data] of images) {
+    const row = document.createElement('div');
+    const role = classify(name);
+    row.innerHTML = `<span class="text-ok">${role}</span> · ${name} ` +
+                    `<span class="text-ink/40">${(data.length / 1024).toFixed(1)} kB</span>`;
+    box.appendChild(row);
+  }
+  refreshFlashButton();
+}
+
+function find(role) {
+  for (const [name, data] of images) if (classify(name) === role) return data;
+  return null;
+}
+
+document.getElementById('files').onchange = async (e) => {
+  for (const file of e.target.files) {
+    if (!classify(file.name)) { log(`ignoring ${file.name}: not a known image`, 'warn'); continue; }
+    images.set(file.name, new Uint8Array(await file.arrayBuffer()));
+    log(`loaded ${file.name} (${(file.size / 1024).toFixed(1)} kB)`);
+  }
+  renderFileList();
+};
+
+document.getElementById('btnFetch').onclick = async () => {
+  const target = 'esp32';
+  const wanted = ['bootloader.bin', 'partition-table.bin', 'ota_data_initial.bin', `${target}.firmware.bin`];
+  log(`fetching images from firmware/${target}/ …`, 'step');
+  let found = 0;
+  for (const name of wanted) {
+    try {
+      const res = await fetch(`firmware/${target}/${name}`, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      images.set(name, new Uint8Array(await res.arrayBuffer()));
+      log(`loaded ${name}`);
+      found++;
+    } catch (err) {
+      log(`could not fetch ${name}: ${err.message}`, 'warn');
+    }
+  }
+  if (!found) log('no images published beside this page — use the file picker', 'bad');
+  renderFileList();
+};
+
+/* --- esptool-js -------------------------------------------------------- */
+
+let ESPLoader, Transport, esploader, transport, chipName = '';
+
+async function loadEsptool() {
+  /* unpkg resolves a range to the newest matching build, so this survives
+   * patch releases without pinning to a version that might not exist. */
+  const candidates = [
+    'https://unpkg.com/esptool-js@0.5/bundle.js',
+    'https://unpkg.com/esptool-js@0.4/bundle.js',
+    'https://cdn.jsdelivr.net/npm/esptool-js@0.5/bundle.js',
+  ];
+  for (const url of candidates) {
+    try {
+      const mod = await import(/* @vite-ignore */ url);
+      if (mod.ESPLoader && mod.Transport) {
+        log(`esptool-js loaded from ${new URL(url).host}`);
+        return mod;
+      }
+    } catch { /* try the next mirror */ }
+  }
+  throw new Error('could not load esptool-js from any CDN');
+}
+
+const espTerminal = {
+  clean() {},
+  writeLine(data) { log(String(data)); },
+  write(data)     { /* progress spam; the bar covers it */ },
+};
+
+document.getElementById('btnConnect').onclick = async () => {
+  const btn = document.getElementById('btnConnect');
+  btn.disabled = true;
+  try {
+    if (!ESPLoader) ({ ESPLoader, Transport } = await loadEsptool());
+
+    setStatus('Waiting for you to pick a port…', 'busy');
+    const port = await navigator.serial.requestPort();
+    transport = new Transport(port, true);
+
+    setStatus('Connecting…', 'busy');
+    log('connecting to the ROM bootloader…', 'step');
+    esploader = new ESPLoader({
+      transport,
+      baudrate: parseInt(document.getElementById('baud').value, 10),
+      terminal: espTerminal,
+    });
+
+    chipName = await esploader.main();
+    log(`connected: ${chipName}`, 'ok');
+    setStatus(`Connected — ${chipName}`, 'ok');
+    refreshFlashButton();
+  } catch (err) {
+    log(`connect failed: ${err.message}`, 'bad');
+    setStatus('Not connected.', 'bad');
+  } finally {
+    btn.disabled = false;
+  }
+};
+
+function refreshFlashButton() {
+  const mode = document.getElementById('mode').value;
+  const haveApp = !!find('app') || !!find('factory');
+  const haveBoot = !!find('bootloader') && !!find('partition-table');
+  const ready = !!esploader && haveApp && (mode === 'update' || haveBoot || !!find('factory'));
+  document.getElementById('btnFlash').disabled = !ready;
+}
+document.getElementById('mode').onchange = refreshFlashButton;
+
+function toBinaryString(u8) {
+  /* esptool-js takes each image as a string of char codes, not a typed array. */
+  let out = '';
+  const CHUNK = 0x8000;
+  for (let i = 0; i < u8.length; i += CHUNK) {
+    out += String.fromCharCode.apply(null, u8.subarray(i, i + CHUNK));
+  }
+  return out;
+}
+
+let lastIdentity = null;
+
+document.getElementById('btnFlash').onclick = async () => {
+  const btn = document.getElementById('btnFlash');
+  btn.disabled = true;
+  document.getElementById('progressWrap').classList.remove('hidden');
+
+  try {
+    const settings = {
+      deviceName: document.getElementById('deviceName').value.trim() || 'aliro-reader',
+      wifiSsid:   document.getElementById('wifiSsid').value.trim(),
+      wifiPass:   document.getElementById('wifiPass').value,
+      lockGpio:   parseInt(document.getElementById('lockGpio').value, 10) || 2,
+    };
+
+    const identity = await generateIdentity(settings);
+    lastIdentity = identity;
+
+    log('packing the identity into an NVS partition image…', 'step');
+    const nvs = identityToNvs(identity, NVS_SIZE);
+    log(`nvs image: ${nvs.length} bytes for 0x${NVS_OFFSET.toString(16)}`, 'ok');
+
+    /* Assemble the write list. Order matters only for readability -- esptool
+     * writes each region independently. */
+    const mode = document.getElementById('mode').value;
+    const parts = [];
+
+    if (mode === 'full') {
+      const factory = find('factory');
+      if (factory) {
+        /* A factory image already contains the bootloader, the table, the OTA
+         * data and the app, so write it whole and then put our NVS on top. */
+        parts.push({ name: 'factory image', data: factory, address: 0x0 });
+      } else {
+        parts.push({ name: 'bootloader',      data: find('bootloader'),      address: bootloaderOffset(chipName) });
+        parts.push({ name: 'partition table', data: find('partition-table'), address: PARTTAB_OFFSET });
+        const ota = find('ota-data');
+        if (ota) parts.push({ name: 'ota data', data: ota, address: OTADATA_OFFSET });
+        parts.push({ name: 'application', data: find('app'), address: APP_OFFSET });
+      }
+    } else {
+      parts.push({ name: 'application', data: find('app'), address: APP_OFFSET });
+    }
+
+    /* Always last, so it wins over anything a factory image put at 0x9000. */
+    parts.push({ name: 'identity (nvs)', data: nvs, address: NVS_OFFSET });
+
+    for (const p of parts) {
+      if (!p.data) throw new Error(`missing image for ${p.name}`);
+      log(`queued ${p.name} → 0x${p.address.toString(16).padStart(5, '0')} (${(p.data.length / 1024).toFixed(1)} kB)`);
+    }
+
+    setStatus('Writing…', 'busy');
+    const bar = document.getElementById('progressBar');
+
+    await esploader.writeFlash({
+      fileArray: parts.map(p => ({ data: toBinaryString(p.data), address: p.address })),
+      flashSize: 'keep',
+      flashMode: 'keep',
+      flashFreq: 'keep',
+      eraseAll: false,
+      compress: true,
+      reportProgress: (fileIndex, written, total) => {
+        const share = (fileIndex + written / total) / parts.length;
+        bar.style.width = `${(share * 100).toFixed(1)}%`;
+        if (written === total) log(`wrote ${parts[fileIndex].name}`, 'ok');
+      },
+    });
+
+    bar.style.width = '100%';
+    log('flash complete — resetting the board', 'ok');
+    await esploader.after();
+
+    setStatus('Done. Open a serial monitor at 115200 baud.', 'ok');
+    log('done. the reader should now boot; press Enter in a serial monitor for the console prompt.', 'ok');
+    showIdentity(identity);
+
+  } catch (err) {
+    log(`flash failed: ${err.message}`, 'bad');
+    setStatus('Flash failed.', 'bad');
+  } finally {
+    btn.disabled = false;
+    refreshFlashButton();
+  }
+};
+
+function showIdentity(identity) {
+  const box = document.getElementById('identity');
+  const facts = document.getElementById('identityFacts');
+  facts.innerHTML = '';
+  const rows = [
+    ['device',           identity.config.device.name],
+    ['serial',           identity.serial],
+    ['group identifier', identity.groupId],
+    ['reader key',       'P-256, private half written to the chip only'],
+    ['credential key',   'P-256, private half available below only'],
+  ];
+  for (const [k, v] of rows) {
+    const row = document.createElement('div');
+    row.innerHTML = `<span class="text-muted">${k.padEnd(18, ' ')}</span> <span class="text-ok">${v}</span>`;
+    facts.appendChild(row);
+  }
+  box.classList.remove('hidden');
+  box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+document.getElementById('btnDownload').onclick = () => {
+  if (!lastIdentity) return;
+  const bundle = {
+    generated_at: new Date().toISOString(),
+    note: 'Development Aliro identity. Not a provisioned credential; no shipping wallet will accept it.',
+    device: lastIdentity.config.device.name,
+    serial: lastIdentity.serial,
+    group_identifier: lastIdentity.groupId,
+    reader_public_key: lastIdentity.reader.publicPem,
+    reader_private_key: lastIdentity.reader.privatePem,
+    credential_public_key: lastIdentity.credential.publicPem,
+    credential_private_key: lastIdentity.credential.privatePem,
+  };
+  const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `aliro-identity-${lastIdentity.serial}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  log('identity bundle downloaded', 'ok');
+};
+
+/* --- boot -------------------------------------------------------------- */
+
+if (!('serial' in navigator)) {
+  document.getElementById('unsupported').classList.remove('hidden');
+  document.getElementById('btnConnect').disabled = true;
+  setStatus('Web Serial not available in this browser.', 'bad');
+  log('this browser has no Web Serial API', 'bad');
+} else {
+  log('ready. load the firmware images, then connect the board.');
+}
+</script>
 </body>
 </html>
