@@ -32,18 +32,24 @@ jobs:
           esp_idf_version: ${{ matrix.idf }}
           target: ${{ matrix.target }}
           command: >-
-            idf.py -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;boards/sdkconfig.defaults.${{ matrix.target }}" build
+            idf.py -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;boards/sdkconfig.defaults.${{ matrix.target }}" build &&
+            idf.py -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;boards/sdkconfig.defaults.${{ matrix.target }}" merge-bin -o aliro-homekey-merged.bin
 
       # Flashable output, so a first bench test needs esptool and nothing else.
       - name: Collect flashable image
         if: matrix.idf == 'v5.5'
         run: |
           mkdir -p firmware
+          # One file, flashed at offset 0x0: what a web flasher wants.
+          cp aliro-homekey-merged.bin firmware/ 2>/dev/null \
+            || cp build/aliro-homekey-merged.bin firmware/
+          # The individual images too, for anyone flashing them separately.
           cp build/aliro_homekey.bin build/bootloader/bootloader.bin \
              build/partition_table/partition-table.bin \
              build/ota_data_initial.bin \
              build/flasher_args.json firmware/
           cp build/flash_args firmware/ 2>/dev/null || true
+          ls -l firmware/
 
       - name: Upload firmware
         if: matrix.idf == 'v5.5'
