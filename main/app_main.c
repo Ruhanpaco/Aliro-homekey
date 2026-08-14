@@ -21,6 +21,7 @@
 #include <esp_check.h>
 #include <esp_err.h>
 #include <esp_log.h>
+#include <esp_ota_ops.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <nvs_flash.h>
@@ -203,4 +204,21 @@ void app_main(void)
      * printing rather than guessing at. */
     ESP_LOGI(k_tag, "main task stack headroom: %u bytes of %d",
              (unsigned)(uxTaskGetStackHighWaterMark(NULL)), CONFIG_ESP_MAIN_TASK_STACK_SIZE);
+
+    /*
+     * Getting this far is the definition of a good image. An app installed
+     * over the air boots once as PENDING_VERIFY, and only this call makes it
+     * permanent -- so a build that panics on the way up, or that cannot bring
+     * up the console and the configuration UI, is reverted by the bootloader
+     * at the next reset instead of needing a cable and an open enclosure.
+     */
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    esp_ota_img_states_t ota_state;
+    if (esp_ota_get_state_partition(running, &ota_state) == ESP_OK && ota_state == ESP_OTA_IMG_PENDING_VERIFY) {
+        if (esp_ota_mark_app_valid_cancel_rollback() == ESP_OK) {
+            ESP_LOGW(k_tag, "new image on '%s' accepted; rollback cancelled", running->label);
+        } else {
+            ESP_LOGE(k_tag, "could not confirm this image; it will roll back on the next reset");
+        }
+    }
 }

@@ -45,12 +45,18 @@ esptool.py --chip esp32 --port /dev/tty.usbserial-0001 --baud 460800 write_flash
 
 ## 2. Flash it — the app alone
 
-`<target>.firmware.bin` is just the application, for reflashing during
-development without rewriting the bootloader and partition table:
+`<target>.firmware.bin` is the app partition on its own: the actual firmware,
+without the bootloader or partition table. Use it to reflash during development
+without disturbing the stored configuration.
 
 ```bash
 esptool.py --chip esp32 --port /dev/tty.usbserial-0001 --baud 460800 write_flash 0x20000 esp32.firmware.bin
 ```
+
+This is also the image the reader accepts over the air — see below. Because the
+web UI is compiled into the application rather than kept on a separate
+filesystem, this one file carries both the firmware and its interface; there is
+no second image to install alongside it.
 
 The CI artifact (Actions tab) additionally carries the individual images if you
 want to write them one by one:
@@ -75,7 +81,24 @@ actually used — trust it over any snippet, including this one.
 
 Find your port with `ls /dev/tty.usb*` on macOS or `ls /dev/ttyUSB*` on Linux.
 
-## 3. Watch it boot
+## 3. Update it without a cable
+
+Once the reader is on your network, **OTA Update** in the web UI takes that same
+`<target>.firmware.bin` and writes it into whichever of the two application
+slots is not currently running, then reboots into it.
+
+A freshly installed image boots once on trial. It is only made permanent after
+it reaches the end of startup with the console and the configuration UI running
+— so a build that panics on the way up, or that cannot serve its own UI, is put
+back by the bootloader at the next reset. A bad update costs a power cycle, not
+a cable.
+
+Do **not** feed the factory image to OTA. It contains the bootloader and
+partition table and is laid out for offset `0x0`, so it cannot boot from an
+application slot; the UI refuses a file with `.factory.` in its name for exactly
+this reason.
+
+## 4. Watch it boot
 
 Reset the board and open a serial terminal at **115200 baud** — `screen`, `minicom`,
 `picocom`, or the Arduino IDE's monitor:
@@ -108,7 +131,7 @@ created and enabled, its identity is persisted to NVS, the credential's key
 slot is derived by the SDK, and the polling task is running. The only thing
 missing is the radio.
 
-## 4. Poke it over serial
+## 5. Poke it over serial
 
 The same serial connection is an interactive console. Press Enter for a prompt:
 
@@ -128,7 +151,7 @@ configuration, access control and the GPIO output all work together.
 `wifi` saves credentials and survives a restart, so you can get the device onto
 your network without ever opening the web UI.
 
-## 5. Reach the web UI
+## 6. Reach the web UI
 
 Until Wi-Fi credentials exist, the reader runs its own access point:
 

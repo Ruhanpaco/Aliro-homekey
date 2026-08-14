@@ -1,7 +1,7 @@
 idf_component_register(SRCS         "app_main.c"
                        INCLUDE_DIRS "."
                        REQUIRES     aliro_reader access_control nfc_transport app_config net_manager web_server mqtt_manager serial_console
-                       PRIV_REQUIRES nvs_flash)
+                       PRIV_REQUIRES nvs_flash app_update)
 
 # Development identity. Generated on demand and never committed: see
 # main/certs/README.md and tools/gen_reader_identity.sh.

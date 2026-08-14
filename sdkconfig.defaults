@@ -53,6 +53,15 @@ CONFIG_HTTPD_MAX_URI_LEN=512
 # which is a very confusing way to learn about it.
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
 
+# --- Over-the-air updates ------------------------------------------------
+# The point of OTA is not having to open the enclosure again, which only holds
+# if a bad image cannot strand the device. With rollback enabled a freshly
+# written app boots once as PENDING_VERIFY; unless it reaches the end of
+# app_main and calls esp_ota_mark_app_valid_cancel_rollback(), the bootloader
+# reverts to the previous slot on the next reset. A build that panics early,
+# or comes up unable to serve the UI, therefore undoes itself.
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+
 # --- Logging -------------------------------------------------------------
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
 CONFIG_LOG_MAXIMUM_LEVEL_DEBUG=y

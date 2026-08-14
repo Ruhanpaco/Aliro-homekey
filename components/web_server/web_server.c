@@ -548,6 +548,20 @@ static esp_err_t handle_get_status(httpd_req_t *req)
     cJSON_AddBoolToObject(mqtt, "enabled", s_hooks.mqtt_enabled ? s_hooks.mqtt_enabled() : false);
     cJSON_AddBoolToObject(mqtt, "connected", s_hooks.mqtt_connected ? s_hooks.mqtt_connected() : false);
 
+    /* Which slot is running and which one an update would land in. Worth
+     * showing: it is the difference between "the update took" and "the update
+     * wrote somewhere and the device booted the old image anyway". */
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    const esp_partition_t *next = esp_ota_get_next_update_partition(NULL);
+    cJSON *ota = cJSON_AddObjectToObject(data, "ota");
+    cJSON_AddStringToObject(ota, "running", running ? running->label : "unknown");
+    cJSON_AddStringToObject(ota, "next", next ? next->label : "none");
+    cJSON_AddNumberToObject(ota, "slot_size", next ? next->size : 0);
+    esp_ota_img_states_t img_state;
+    cJSON_AddBoolToObject(ota, "pending_verify",
+                          running && esp_ota_get_state_partition(running, &img_state) == ESP_OK &&
+                              img_state == ESP_OTA_IMG_PENDING_VERIFY);
+
     return send_json_response(req, true, "Device status", NULL, data);
 }
 
@@ -867,61 +881,136 @@ static esp_err_t handle_ota_upload(httpd_req_t *req)
         return send_json_response(req, false, NULL, "no OTA partition found", NULL);
     }
 
+    /* Refuse an image that cannot fit before erasing the slot that currently
+     * holds a working one. esp_ota_write would otherwise fail somewhere in the
+     * middle, leaving the spare partition half-written. */
+    if (req->content_len > partition->size) {
+        ESP_LOGE(k_tag, "image is %u bytes, partition '%s' holds %u", (unsigned)req->content_len, partition->label,
+                 (unsigned)partition->size);
+        httpd_resp_set_status(req, "413 Payload Too Large");
+        return send_json_response(req, false, NULL, "firmware is larger than the OTA partition", NULL);
+    }
+
+    /* One at a time. Two uploads into the same partition interleave their
+     * writes and produce an image that is neither. */
+    static volatile bool s_ota_running;
+    if (s_ota_running) {
+        httpd_resp_set_status(req, "409 Conflict");
+        return send_json_response(req, false, NULL, "an update is already in progress", NULL);
+    }
+    s_ota_running = true;
+
     esp_ota_handle_t handle = 0;
     esp_err_t err = esp_ota_begin(partition, req->content_len, &handle);
     if (err != ESP_OK) {
+        s_ota_running = false;
         httpd_resp_set_status(req, "500 Internal Server Error");
         return send_json_response(req, false, NULL, "OTA begin failed", NULL);
     }
 
+    ESP_LOGW(k_tag, "OTA started: %u bytes into '%s'", (unsigned)req->content_len, partition->label);
+
+    /* From the heap and far larger than a TCP segment: at 1 kB this loop ran
+     * thousands of times over a slow link, and every iteration is a write to
+     * flash. */
+    const size_t buf_size = 4096;
+    uint8_t *buf = malloc(buf_size);
+    if (!buf) {
+        esp_ota_abort(handle);
+        s_ota_running = false;
+        httpd_resp_set_status(req, "507 Insufficient Storage");
+        return send_json_response(req, false, NULL, "out of memory", NULL);
+    }
+
     size_t remaining = req->content_len;
-    uint8_t buf[1024];
-    uint32_t total_written = 0;
+    size_t total_written = 0;
+    size_t last_reported = 0;
+    const char *failure = NULL;
 
     while (remaining > 0) {
-        size_t chunk_size = remaining > sizeof(buf) ? sizeof(buf) : remaining;
-        int received = httpd_req_recv(req, (char *)buf, chunk_size);
+        const size_t want = remaining > buf_size ? buf_size : remaining;
+        const int received = httpd_req_recv(req, (char *)buf, want);
 
+        if (received == HTTPD_SOCK_ERR_TIMEOUT) {
+            /* A stalled sender, not a failed one. Aborting here is what made
+             * an upload over a weak Wi-Fi link fail at a random percentage. */
+            continue;
+        }
         if (received < 0) {
-            esp_ota_abort(handle);
-            httpd_resp_set_status(req, "500 Internal Server Error");
-            return send_json_response(req, false, NULL, "receive error", NULL);
+            failure = "connection lost during upload";
+            break;
+        }
+        if (received == 0) {
+            /* Nothing left, but content-length promised more: the client gave
+             * up. Treating this as "keep going" spins forever. */
+            failure = "upload ended early";
+            break;
         }
 
-        if (received > 0) {
-            err = esp_ota_write(handle, buf, received);
-            if (err != ESP_OK) {
-                esp_ota_abort(handle);
-                httpd_resp_set_status(req, "500 Internal Server Error");
-                return send_json_response(req, false, NULL, "OTA write failed", NULL);
+        if (esp_ota_write(handle, buf, received) != ESP_OK) {
+            failure = "flash write failed";
+            break;
+        }
+        total_written += received;
+        remaining -= received;
+
+        /* Progress in twentieths, over the WebSocket the UI already holds. The
+         * send task owns the socket, so this does not block the upload. */
+        if (total_written - last_reported >= req->content_len / 20 || remaining == 0) {
+            last_reported = total_written;
+            cJSON *progress = cJSON_CreateObject();
+            cJSON_AddStringToObject(progress, "type", "ota");
+            cJSON_AddNumberToObject(progress, "written", total_written);
+            cJSON_AddNumberToObject(progress, "total", req->content_len);
+            cJSON_AddNumberToObject(progress, "percent", (total_written * 100) / req->content_len);
+            char *json = cJSON_PrintUnformatted(progress);
+            cJSON_Delete(progress);
+            if (json) {
+                ws_broadcast((const uint8_t *)json, strlen(json), HTTPD_WS_TYPE_TEXT);
+                free(json);
             }
-            total_written += received;
-            remaining -= received;
         }
     }
 
-    err = esp_ota_end(handle);
-    if (err != ESP_OK) {
-        httpd_resp_set_status(req, "500 Internal Server Error");
-        return send_json_response(req, false, NULL, "OTA end failed", NULL);
+    free(buf);
+
+    if (!failure) {
+        /* esp_ota_end is where a truncated or corrupt image is caught. Either
+         * way it consumes the handle, so clear it before anything below can
+         * reach the abort path -- aborting a handle esp_ota_end has already
+         * released is a use-after-free, and set_boot_partition failing right
+         * after a successful end is exactly how you get there. */
+        const esp_err_t end_err = esp_ota_end(handle);
+        handle = 0;
+        if (end_err != ESP_OK) {
+            failure = "the uploaded image failed validation";
+        }
+    }
+    if (!failure && esp_ota_set_boot_partition(partition) != ESP_OK) {
+        failure = "could not select the new image to boot";
     }
 
-    err = esp_ota_set_boot_partition(partition);
-    if (err != ESP_OK) {
+    if (failure) {
+        if (handle) {
+            esp_ota_abort(handle);
+        }
+        s_ota_running = false;
+        ESP_LOGE(k_tag, "OTA failed after %u bytes: %s", (unsigned)total_written, failure);
         httpd_resp_set_status(req, "500 Internal Server Error");
-        return send_json_response(req, false, NULL, "OTA set boot failed", NULL);
+        return send_json_response(req, false, NULL, failure, NULL);
     }
 
-    ESP_LOGI(k_tag, "OTA update complete: %"PRIu32" bytes", total_written);
+    ESP_LOGW(k_tag, "OTA complete: %u bytes, booting '%s' next", (unsigned)total_written, partition->label);
 
     cJSON *data = cJSON_CreateObject();
     cJSON_AddNumberToObject(data, "bytes_written", total_written);
     cJSON_AddNumberToObject(data, "reboot_delay_ms", 1000);
     const esp_err_t send_err = send_json_response(req, true, "Firmware updated, rebooting", NULL, data);
 
-    /* Reboot after a delay to let response reach client */
-    vTaskDelay(pdMS_TO_TICKS(1000));
-    esp_restart();
+    /* Reboot from a task so the response is flushed first. s_ota_running is
+     * deliberately left set: nothing else should start an upload into a
+     * partition the device is about to boot from. */
+    xTaskCreate(reboot_task, "reboot", 2048, NULL, 5, NULL);
     return send_err;
 }
 

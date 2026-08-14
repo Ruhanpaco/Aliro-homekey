@@ -214,6 +214,8 @@ body{background:var(--color-base-100);color:var(--color-base-content);
 .alert{display:flex;align-items:center;gap:.75rem;padding:.75rem 1rem;
   border-radius:var(--radius-box);background:var(--color-base-300);font-size:.875rem}
 .alert-error{background:var(--color-error);color:var(--color-error-content)}
+/* An alert carrying a heading and a line of detail stacks them. */
+.alert b{display:block}
 .alert-warning{background:var(--color-warning);color:var(--color-warning-content)}
 .alert-success{background:var(--color-success);color:var(--color-success-content)}
 /* An alert that carries a heading and a line of detail stacks instead. */
@@ -250,6 +252,8 @@ dl{display:flex;flex-direction:column;gap:.5rem;margin:0}
 .card-head .card-title{font-size:1.125rem}
 .card-head .caption{margin:0;font-size:.75rem;
   color:color-mix(in oklab,var(--color-base-content) 60%,transparent)}
+.ota-bar{height:.5rem;border-radius:999px;overflow:hidden;background:var(--color-base-300)}
+.ota-bar>div{height:100%;width:0;background:var(--color-primary);transition:width .2s linear}
 .max-w-6xl{max-width:72rem}
 .items-start{align-items:start}
 
@@ -370,7 +374,16 @@ main{padding:0 1.5rem 1.5rem;height:100%;overflow-y:auto;background:var(--color-
                 <path stroke-linecap="round" stroke-linejoin="round"
                       d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
                 <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-              </svg>Misc
+              </svg>System
+            </a>
+          </li>
+          <li class="my-1" role="menuitem">
+            <a href="#/ota" data-page="ota" class="text-lg flex items-center">
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none"
+                   viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round"
+                      d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M12 4v12m0-12l-4 4m4-4l4 4"/>
+              </svg>OTA Update
             </a>
           </li>
           <li class="my-1" role="menuitem">
@@ -942,6 +955,85 @@ main{padding:0 1.5rem 1.5rem;height:100%;overflow-y:auto;background:var(--color-
           </div>
         </div>
 
+        <!-- ------------------------------------------------------ OTA -->
+        <div class="page" data-page="ota">
+          <div class="page-head">
+            <h1>OTA Update</h1>
+            <p>Install a new build over the network, without opening the enclosure.</p>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-6xl items-start">
+            <div class="card">
+              <div class="card-body">
+                <div class="card-head">
+                  <div class="icon-tile">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                         stroke="currentColor" stroke-width="2" aria-hidden="true">
+                      <path stroke-linecap="round" stroke-linejoin="round"
+                            d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 class="card-title">Device Information</h3>
+                    <p class="caption">Which slot is running, and where an update lands</p>
+                  </div>
+                </div>
+                <dl id="ota_slots"></dl>
+                <p class="text-xs text-muted">Two application slots take turns. The one not
+                  running is erased and written, then the reader is told to boot it.</p>
+                <p class="text-xs text-muted"><b>firmware.bin</b> is the app partition on its
+                  own — the actual firmware, and the only thing that goes over the air.
+                  <b>firmware.factory.bin</b> is bootloader, partition table and app together,
+                  padded to the whole 4&nbsp;MB chip; it is for flashing a fresh board over USB
+                  at&nbsp;<code>0x0</code>, and it wipes the stored configuration.</p>
+                <p class="text-xs text-muted">This page is compiled into the firmware rather than
+                  kept on a separate filesystem, so one upload updates the reader and its web UI
+                  together — there is no second image to install.</p>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-body">
+                <div class="card-head">
+                  <div class="icon-tile">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                         stroke="currentColor" stroke-width="2" aria-hidden="true">
+                      <path stroke-linecap="round" stroke-linejoin="round"
+                            d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1M12 4v12m0-12l-4 4m4-4l4 4"/>
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 class="card-title">Firmware</h3>
+                    <p class="caption">Pick <code>&lt;target&gt;.firmware.bin</code>, not the factory image</p>
+                  </div>
+                </div>
+
+                <div class="form-control">
+                  <label class="label" for="ota_file"><span class="label-text text-sm">Firmware image (.bin)</span></label>
+                  <input id="ota_file" type="file" accept=".bin,application/octet-stream"
+                         class="input input-sm input-bordered w-full">
+                </div>
+
+                <div id="ota_bar_wrap" class="hidden" style="margin-top:.75rem">
+                  <div class="ota-bar"><div id="ota_bar"></div></div>
+                  <p class="text-xs text-muted" id="ota_pct" style="margin-top:.375rem">0%</p>
+                </div>
+
+                <div id="ota_msg" class="alert hidden" style="margin-top:.75rem"></div>
+
+                <div class="flex items-center gap-3 flex-wrap" style="margin-top:.75rem">
+                  <button type="button" class="btn btn-sm btn-primary" id="ota_start" disabled>Install Update</button>
+                  <span class="text-xs text-muted">Keep this page open until it restarts.</span>
+                </div>
+
+                <p class="text-xs text-muted" style="margin-top:.75rem">A new image boots once on
+                  trial. If it cannot start and reach this UI, the bootloader puts the previous one
+                  back at the next reset — a bad update costs a power cycle, not a cable.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- ------------------------------------------------------ Logs -->
         <div class="page" data-page="logs">
           <div class="page-head">
@@ -974,7 +1066,8 @@ main{padding:0 1.5rem 1.5rem;height:100%;overflow-y:auto;background:var(--color-
 <script>
 "use strict";
 const $ = (id) => document.getElementById(id);
-const PAGES = {info:"Info", mqtt:"MQTT", actions:"Actions", misc:"Misc", logs:"Logs"};
+const PAGES = {info:"Info", mqtt:"MQTT", actions:"Actions", misc:"System",
+               ota:"OTA Update", logs:"Logs"};
 let caps = null;
 let logSince = 0, logLines = [], logTimer = null;
 let ws = null, wsReconnectTimer = null;
@@ -1224,6 +1317,15 @@ function renderStatus(s) {
     : s.mqtt.connected ? "Connected" : "Disconnected";
   $("mqtt_state").className = `text-sm font-medium ${!s.mqtt.enabled ? "text-muted"
     : s.mqtt.connected ? "text-success" : "text-error"}`;
+
+  if (s.ota) {
+    rows("ota_slots", [
+      ["Running slot", s.ota.running],
+      ["Update goes to", s.ota.next],
+      ["Slot capacity", `${(s.ota.slot_size / 1024 / 1024).toFixed(2)} MB`],
+      ["This image", s.ota.pending_verify ? badge("On trial", "warning") : badge("Confirmed", "success")],
+    ]);
+  }
 }
 
 async function refreshStatus() {
@@ -1320,6 +1422,84 @@ $("reset").addEventListener("click", async () => {
     renderAliro();
   } catch (err) { toast(err.message, "error"); }
 });
+
+/* --- firmware update --------------------------------------------------- */
+
+function otaSay(kind, html) {
+  const el = $("ota_msg");
+  el.className = "alert" + (kind ? " alert-" + kind : "");
+  el.innerHTML = html;
+}
+
+function otaProgress(percent) {
+  $("ota_bar_wrap").classList.remove("hidden");
+  $("ota_bar").style.width = percent + "%";
+  $("ota_pct").textContent = percent + "%";
+}
+
+$("ota_file").onchange = () => {
+  const file = $("ota_file").files[0];
+  $("ota_start").disabled = !file;
+  if (!file) return;
+  /* The factory image is the whole flash including the bootloader; writing it
+     into an OTA slot produces something that cannot boot. Cheap to catch here. */
+  if (file.name.includes(".factory.")) {
+    otaSay("warning",
+      "<div>That looks like a <b>factory</b> image. Over the air you want the plain " +
+      "<code>.firmware.bin</code> — the factory one includes the bootloader and " +
+      "partition table, which only go in over USB at offset 0.</div>");
+    $("ota_start").disabled = true;
+    return;
+  }
+  otaSay("", `<div>${file.name} — ${(file.size / 1024 / 1024).toFixed(2)} MB</div>`);
+};
+
+$("ota_start").onclick = () => {
+  const file = $("ota_file").files[0];
+  if (!file) return;
+
+  $("ota_start").disabled = true;
+  $("ota_file").disabled = true;
+  otaProgress(0);
+  otaSay("", "<div>Uploading… do not power the reader off.</div>");
+
+  /* XHR, not fetch: upload progress events are the whole point, and fetch
+     still cannot report them. The device also broadcasts its own progress
+     over the WebSocket, but that stops the moment the socket is starved by
+     the upload, so the browser's own count is the one to trust. */
+  const xhr = new XMLHttpRequest();
+  xhr.open("POST", "/api/ota");
+  xhr.setRequestHeader("Content-Type", "application/octet-stream");
+
+  xhr.upload.onprogress = (e) => {
+    if (e.lengthComputable) otaProgress(Math.round((e.loaded / e.total) * 100));
+  };
+
+  xhr.onload = () => {
+    let body = {};
+    try { body = JSON.parse(xhr.responseText); } catch { /* device may reset mid-reply */ }
+    if (xhr.status >= 200 && xhr.status < 300 && body.success !== false) {
+      otaProgress(100);
+      otaSay("success",
+        "<div><b>Update installed</b>The reader is restarting. It will come back on the " +
+        "same address in a few seconds — reload the page then.</div>");
+    } else {
+      otaSay("error", `<div><b>Update failed</b>${body.error || ("HTTP " + xhr.status)}</div>`);
+      $("ota_file").disabled = false;
+      $("ota_start").disabled = false;
+    }
+  };
+
+  xhr.onerror = () => {
+    otaSay("error",
+      "<div><b>Upload interrupted</b>The connection dropped. Nothing was booted from the " +
+      "partial image; try again.</div>");
+    $("ota_file").disabled = false;
+    $("ota_start").disabled = false;
+  };
+
+  xhr.send(file);
+};
 
 /* --- Wi-Fi setup ------------------------------------------------------- */
 
