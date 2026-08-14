@@ -728,7 +728,10 @@ static esp_err_t handle_post_unlock(httpd_req_t *req)
 static void reboot_task(void *params)
 {
     (void)params;
-    vTaskDelay(pdMS_TO_TICKS(500)); /* let the response reach the browser */
+    /* Let the response reach the browser. A second, not the half we had: the
+     * request that triggers this usually arrives over the setup access point,
+     * which is the slowest and least reliable link this device ever serves. */
+    vTaskDelay(pdMS_TO_TICKS(1000));
     esp_restart();
 }
 

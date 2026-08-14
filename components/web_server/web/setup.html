@@ -3,93 +3,232 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Aliro HomeKey setup</title>
+<title>Device Configuration — Aliro HomeKey</title>
 <style>
 /*
  * The setup page is deliberately not the configuration UI. It is served into a
  * captive-portal window -- iOS opens a stripped WebView, not Safari -- which is
  * a poor place to load 40 kB of app, a WebSocket and a five-page router. One
- * job here: get the reader onto a network. Everything else waits until it has
- * a real address.
+ * job here: get the reader onto a network.
+ *
+ * Layout and components follow HomeKey-ESP32's captive portal (header with a
+ * Setup badge, one centred card, an SSID field with a square scan button, and
+ * a tappable network list with signal dots), rebuilt on the same daisyUI
+ * `dracula` tokens the main UI uses so the two pages are one product.
  */
 :root{
   color-scheme:dark;
-  --base-100:#282a36; --base-200:#21222c; --base-300:#191a21;
-  --ink:#f8f8f2; --muted:#a4a7b8; --brand:#ff79c6; --brand-ink:#21222c;
-  --ok:#50fa7b; --bad:#ff5555; --warn:#f1fa8c; --line:rgba(248,248,242,.14);
+  --color-base-100:oklch(28.822% 0.022 277.508);
+  --color-base-200:oklch(26.805% 0.02 277.508);
+  --color-base-300:oklch(24.787% 0.019 277.508);
+  --color-base-content:oklch(97.747% 0.007 106.545);
+  --color-primary:oklch(75.461% 0.183 346.812);
+  --color-primary-content:oklch(15.092% 0.036 346.812);
+  --color-info:oklch(88.263% 0.093 212.846);
+  --color-info-content:oklch(16.922% 0.019 212.846);
+  --color-success:oklch(87.099% 0.219 148.024);
+  --color-success-content:oklch(17.419% 0.043 148.024);
+  --color-warning:oklch(95.533% 0.134 112.757);
+  --color-warning-content:oklch(19.106% 0.026 112.757);
+  --color-error:oklch(68.22% 0.206 24.43);
+  --color-error-content:oklch(13.644% 0.041 24.43);
+  --radius-field:.5rem; --radius-box:1rem;
 }
 *{box-sizing:border-box}
-body{margin:0;padding:20px;background:var(--base-100);color:var(--ink);
-  font:16px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
-.wrap{max-width:460px;margin:0 auto}
-h1{font-size:22px;margin:0 0 4px;letter-spacing:-.01em}
-.sub{color:var(--muted);font-size:14px;margin:0 0 22px}
-.card{background:var(--base-200);border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:14px}
-label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px}
-select,input{width:100%;padding:11px 12px;border-radius:9px;background:var(--base-300);
-  color:var(--ink);border:1px solid var(--line);font-size:16px;margin-bottom:14px}
-select:focus,input:focus{outline:none;border-color:var(--brand)}
-button{width:100%;padding:12px;border-radius:9px;border:1px solid var(--line);
-  background:var(--base-300);color:var(--ink);font-size:15px;font-weight:600;cursor:pointer}
-button.primary{background:var(--brand);color:var(--brand-ink);border-color:var(--brand)}
-button:disabled{opacity:.45;cursor:not-allowed}
-.row{display:flex;gap:10px}
-.row button{width:auto;flex:1}
-.msg{border-radius:9px;padding:12px 14px;font-size:14px;margin-top:14px;display:none}
-.msg.show{display:block}
-.msg.ok{background:rgba(80,250,123,.14);border:1px solid rgba(80,250,123,.4)}
-.msg.bad{background:rgba(255,85,85,.14);border:1px solid rgba(255,85,85,.4)}
-.msg.busy{background:rgba(241,250,140,.12);border:1px solid rgba(241,250,140,.35)}
-.msg b{display:block;margin-bottom:3px}
-.msg a{color:var(--ok);font-weight:700}
-.foot{color:var(--muted);font-size:12px;text-align:center;margin-top:18px;line-height:1.5}
-.sig{font-family:ui-monospace,Menlo,monospace}
+html,body{margin:0;padding:0}
+body{min-height:100dvh;display:flex;flex-direction:column;
+  background:var(--color-base-100);color:var(--color-base-content);
+  font:16px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.muted{color:color-mix(in oklab,var(--color-base-content) 70%,transparent)}
+.muted-60{color:color-mix(in oklab,var(--color-base-content) 60%,transparent)}
+
+/* header / main / footer */
+header{background:var(--color-base-200);padding:.75rem 1rem;
+  box-shadow:0 1px 2px rgba(0,0,0,.3)}
+header .stack{display:flex;flex-direction:column;align-items:center;gap:.25rem}
+header .name{display:flex;align-items:center;gap:.5rem}
+header .name b{font-size:1.125rem}
+main{flex:1;display:flex;align-items:center;justify-content:center;padding:1rem}
+.shell{width:100%;max-width:28rem}
+footer{background:var(--color-base-200);padding:1rem;text-align:center;font-size:.875rem}
+
+.badge{display:inline-flex;align-items:center;padding:.125rem .5rem;font-size:.75rem;
+  font-weight:600;border-radius:1rem;background:var(--color-info);color:var(--color-info-content)}
+.badge-ghost{background:var(--color-base-300);color:var(--color-base-content)}
+
+.card{background:var(--color-base-200);border:1px solid var(--color-base-300);
+  border-radius:var(--radius-box);box-shadow:0 20px 25px -5px rgba(0,0,0,.35)}
+.card-body{padding:1.5rem;display:flex;flex-direction:column;gap:1rem}
+.card-title{font-size:1.5rem;font-weight:700;text-align:center;margin:0}
+.lede{text-align:center;margin:0;font-size:.925rem}
+
+.field{display:flex;flex-direction:column;gap:.375rem}
+.label{font-size:.875rem;font-weight:500}
+.label-alt{font-size:.75rem}
+.input{width:100%;padding:.7rem .75rem;font-size:1rem;border-radius:var(--radius-field);
+  background:var(--color-base-100);color:var(--color-base-content);
+  border:1px solid var(--color-base-300)}
+.input:focus{outline:2px solid var(--color-primary);outline-offset:-1px}
+.input:disabled{opacity:.5}
+.row{display:flex;gap:.5rem}
+.row .input{flex:1;min-width:0}
+
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:.5rem;
+  padding:.7rem 1rem;font-size:.95rem;font-weight:600;cursor:pointer;
+  border-radius:var(--radius-field);border:1px solid transparent;
+  background:var(--color-base-300);color:var(--color-base-content)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn-primary{background:var(--color-primary);color:var(--color-primary-content)}
+.btn-outline{background:transparent;border-color:var(--color-base-300)}
+.btn-outline:hover:not(:disabled){background:var(--color-base-300)}
+.btn-square{width:2.9rem;padding:0;flex:0 0 auto}
+.btn-block{width:100%}
+
+/* network list */
+.netlist{border:1px solid var(--color-base-300);border-radius:var(--radius-field);
+  overflow:hidden;background:var(--color-base-100)}
+.netlist-head{padding:.5rem .75rem;background:var(--color-base-200);font-size:.75rem;
+  font-weight:500;border-bottom:1px solid var(--color-base-300)}
+.netlist-scroll{max-height:12rem;overflow-y:auto}
+.netrow{width:100%;display:flex;align-items:center;justify-content:space-between;gap:.5rem;
+  padding:.5rem .75rem;background:none;border:0;cursor:pointer;text-align:left;
+  color:var(--color-base-content);font-size:.925rem;font-family:inherit}
+.netrow:hover{background:var(--color-base-200)}
+.netrow .left{display:flex;align-items:center;gap:.5rem;min-width:0}
+.netrow .ssid{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.netrow .right{display:flex;align-items:center;gap:.25rem;flex:0 0 auto;font-size:.75rem}
+.dots{letter-spacing:-1px}
+.dim{color:var(--color-base-300)}
+.ok{color:var(--color-success)} .warn{color:var(--color-warning)} .bad{color:var(--color-error)}
+.netlist-close{width:100%;padding:.5rem .75rem;font-size:.875rem;background:none;border:0;
+  border-top:1px solid var(--color-base-300);cursor:pointer;font-family:inherit}
+.netlist-close:hover{background:var(--color-base-200)}
+
+.alert{display:flex;align-items:flex-start;gap:.75rem;padding:.75rem 1rem;
+  border-radius:var(--radius-box);font-size:.875rem;background:var(--color-base-300)}
+.alert svg{flex:0 0 auto;width:1.5rem;height:1.5rem}
+.alert-success{background:var(--color-success);color:var(--color-success-content)}
+.alert-error{background:var(--color-error);color:var(--color-error-content)}
+.alert-warning{background:var(--color-warning);color:var(--color-warning-content)}
+.alert b{display:block}
+.alert a{color:inherit;font-weight:700}
+/* Wins over any component's own display, whatever the source order. */
+.hidden{display:none!important}
+
+.spinner{width:1.15rem;height:1.15rem;border-radius:50%;display:inline-block;
+  border:2px solid currentColor;border-right-color:transparent;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spinner{animation-duration:2s}}
 </style>
 </head>
 <body>
-<div class="wrap">
-  <h1>Aliro HomeKey</h1>
-  <p class="sub">Pick the network this reader should join. It connects before
-    saving anything, so a wrong password is caught now rather than after a reboot.</p>
 
-  <div class="card">
-    <label for="ssid">Network</label>
-    <select id="ssid"><option value="">— tap Scan to see what is nearby —</option></select>
-
-    <div id="passrow">
-      <label for="pass">Password</label>
-      <input id="pass" type="password" autocomplete="off" autocapitalize="off" autocorrect="off">
-    </div>
-
-    <div class="row">
-      <button id="scan" type="button">Scan</button>
-      <button id="join" type="button" class="primary">Connect</button>
-    </div>
-
-    <div id="msg" class="msg"></div>
+<header>
+  <div class="stack">
+    <div class="name"><b>Aliro HomeKey</b><span class="badge">Setup</span></div>
+    <span class="muted" style="font-size:.875rem">Device Configuration</span>
   </div>
+</header>
 
-  <p class="foot">
-    No NFC driver in this build yet, so the reader cannot read a card.<br>
-    Serial console at 115200 baud.
-  </p>
-</div>
+<main>
+  <div class="shell">
+    <div class="card">
+      <div class="card-body">
+
+        <!-- success state replaces the form, as in HomeKey's portal -->
+        <div id="done" class="hidden">
+          <div class="alert alert-success">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+            <div>
+              <b>Wi-Fi connection successful</b>
+              <b id="done_ip"></b>
+              <span id="done_note"></span>
+            </div>
+          </div>
+        </div>
+
+        <div id="form">
+          <h2 class="card-title">Configure Your Device</h2>
+          <p class="lede muted">Pick the network this reader should join. It connects
+            before saving anything, so a wrong password is caught now rather than
+            after a restart.</p>
+
+          <div class="field" style="margin-top:1rem">
+            <label class="label" for="ssid">Wi-Fi Network Name (SSID)</label>
+            <div class="row">
+              <input id="ssid" class="input" type="text" maxlength="32"
+                     placeholder="Enter or select your Wi-Fi name"
+                     autocomplete="off" autocapitalize="off" autocorrect="off">
+              <button id="scan" class="btn btn-outline btn-square" type="button" title="Scan for networks">
+                <svg id="scan_icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none"
+                     viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                </svg>
+                <span id="scan_spin" class="spinner hidden"></span>
+              </button>
+            </div>
+            <div id="netbox"></div>
+          </div>
+
+          <div class="field" style="margin-top:1rem" id="passrow">
+            <label class="label" for="pass">Wi-Fi Password</label>
+            <input id="pass" class="input" type="password" maxlength="64"
+                   placeholder="Enter your Wi-Fi password" autocomplete="off">
+          </div>
+
+          <div id="msg" class="alert hidden" style="margin-top:1rem"></div>
+
+          <button id="join" class="btn btn-primary btn-block" type="button" style="margin-top:1rem">
+            Connect
+          </button>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <div class="muted">
+    Configure your device to connect to your network<br>
+    No NFC driver in this build yet — serial console at 115200 baud.
+  </div>
+</footer>
 
 <script>
 "use strict";
 var $ = function (id) { return document.getElementById(id); };
+var WIFI_SVG =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" ' +
+  'stroke="currentColor" stroke-width="2" style="flex:0 0 auto"><path stroke-linecap="round" ' +
+  'stroke-linejoin="round" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 ' +
+  '10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0"/></svg>';
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, function (c) {
+    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+  });
+}
 
 function say(kind, html) {
   var m = $("msg");
-  m.className = "msg show " + kind;
+  m.className = "alert " + (kind ? "alert-" + kind : "");
   m.innerHTML = html;
 }
+function clearMsg() { $("msg").className = "alert hidden"; $("msg").innerHTML = ""; }
 
-function bars(rssi) {
-  if (rssi >= -55) return "▂▄▆█";
-  if (rssi >= -67) return "▂▄▆_";
-  if (rssi >= -78) return "▂▄__";
-  return "▂___";
+/* Four dots, lit by strength -- HomeKey's portal reads much better than a bare
+   dBm figure, and the number stays alongside for anyone who wants it. */
+function dots(rssi) {
+  var lit, cls;
+  if (rssi > -50)      { lit = 4; cls = "ok"; }
+  else if (rssi > -60) { lit = 3; cls = "ok"; }
+  else if (rssi > -70) { lit = 2; cls = "warn"; }
+  else                 { lit = 1; cls = "bad"; }
+  return '<span class="dots ' + cls + '">' + Array(lit + 1).join("●") + "</span>" +
+         (lit < 4 ? '<span class="dots dim">' + Array(4 - lit + 1).join("●") + "</span>" : "");
 }
 
 /* Every response is {success, message, data}; callers want the payload. */
@@ -104,49 +243,75 @@ function api(path, options) {
   });
 }
 
+function busy(on) {
+  $("scan").disabled = on;
+  $("scan_icon").classList.toggle("hidden", on);
+  $("scan_spin").classList.toggle("hidden", !on);
+}
+
+function renderNetworks(nets) {
+  var box = $("netbox");
+  if (!nets.length) {
+    box.innerHTML =
+      '<div class="alert alert-warning" style="margin-top:.5rem">' +
+      '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" ' +
+      'stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 ' +
+      '4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>' +
+      "</svg><span>No networks found</span></div>";
+    return;
+  }
+
+  var html =
+    '<div class="netlist" style="margin-top:.5rem"><div class="netlist-head muted">Found ' +
+    nets.length + " network" + (nets.length === 1 ? "" : "s") +
+    ' — tap to select</div><div class="netlist-scroll">';
+
+  for (var i = 0; i < nets.length; i++) {
+    var n = nets[i];
+    html +=
+      '<button type="button" class="netrow" data-ssid="' + esc(n.ssid) + '" data-open="' +
+      (n.open ? "1" : "") + '"><span class="left">' + WIFI_SVG +
+      '<span class="ssid">' + esc(n.ssid) + "</span>" +
+      (n.open ? '<span class="badge badge-ghost">Open</span>' : "") +
+      '</span><span class="right muted-60">' + dots(n.rssi) +
+      "<span>" + n.rssi + "dBm</span></span></button>";
+  }
+
+  html += '</div><button type="button" id="netclose" class="netlist-close muted-60">Close list</button></div>';
+  box.innerHTML = html;
+
+  var rows = box.querySelectorAll(".netrow");
+  for (var j = 0; j < rows.length; j++) {
+    rows[j].onclick = function () {
+      $("ssid").value = this.dataset.ssid;
+      /* An open network has nothing to type, so stop asking for it. */
+      $("passrow").classList.toggle("hidden", Boolean(this.dataset.open));
+      box.innerHTML = "";
+      clearMsg();
+    };
+  }
+  $("netclose").onclick = function () { box.innerHTML = ""; };
+}
+
 $("scan").onclick = function () {
-  var btn = $("scan");
-  btn.disabled = true;
-  btn.textContent = "Scanning…";
-  say("busy", "Looking for networks…");
-
+  busy(true);
+  clearMsg();
   api("/api/wifi_scan").then(function (data) {
-    var sel = $("ssid"), nets = data.networks || [];
-    sel.innerHTML = "";
-    if (!nets.length) {
-      sel.appendChild(new Option("— nothing in range —", ""));
-      say("bad", "No networks found. Move the reader closer to your router and scan again.");
-    } else {
-      sel.appendChild(new Option("— pick a network —", ""));
-      for (var i = 0; i < nets.length; i++) {
-        var n = nets[i];
-        var opt = new Option(bars(n.rssi) + "  " + n.ssid + (n.open ? "" : "  🔒"), n.ssid);
-        opt.dataset.open = n.open ? "1" : "";
-        sel.appendChild(opt);
-      }
-      say("ok", nets.length + " network" + (nets.length === 1 ? "" : "s") + " found.");
-    }
+    renderNetworks(data.networks || []);
   }).catch(function (err) {
-    say("bad", "Scan failed: " + err.message);
-  }).then(function () {
-    btn.disabled = false;
-    btn.textContent = "Scan";
-  });
-};
-
-/* An open network has nothing to type, so stop asking for it. */
-$("ssid").onchange = function () {
-  var opt = this.selectedOptions[0];
-  $("passrow").style.display = (opt && opt.dataset.open) ? "none" : "block";
+    say("error", "<div><b>Scan failed</b>" + esc(err.message) + "</div>");
+  }).then(function () { busy(false); });
 };
 
 $("join").onclick = function () {
-  var ssid = $("ssid").value;
-  if (!ssid) { say("bad", "Pick a network first."); return; }
+  var ssid = $("ssid").value.trim();
+  if (!ssid) { say("warning", "<div>Choose a network, or type its name.</div>"); return; }
 
   $("join").disabled = true;
   $("scan").disabled = true;
-  say("busy", "<b>Joining " + ssid + "…</b>This can take up to half a minute. Stay on this page.");
+  $("netbox").innerHTML = "";
+  say("", '<span class="spinner"></span><div><b>Joining ' + esc(ssid) + "</b>" +
+          "This can take up to half a minute. Stay on this page.</div>");
 
   api("/api/wifi_connect", {
     method: "POST",
@@ -154,11 +319,13 @@ $("join").onclick = function () {
     body: JSON.stringify({ ssid: ssid, password: $("pass").value })
   }).then(function (data) {
     var url = "http://" + data.ip + "/";
-    say("ok",
-      "<b>Connected to " + data.ssid + "</b>" +
-      "This reader is now at <a href=\"" + url + "\">" + url + "</a> on your network." +
-      (data.saved ? "" : "<br>Warning: the credentials could not be stored and will not survive a restart.") +
-      "<br><br>Restarting so it leaves this setup network… rejoin your own Wi-Fi and open the address above.");
+    $("done_ip").innerHTML = 'IP Address: <a href="' + esc(url) + '">' + esc(data.ip) + "</a>";
+    $("done_note").textContent = data.saved
+      ? "Configuration saved. The device is restarting and will join " + data.ssid +
+        " — rejoin your own Wi-Fi and open the address above."
+      : "Connected, but the credentials could not be stored and will not survive a restart.";
+    $("form").classList.add("hidden");
+    $("done").classList.remove("hidden");
 
     /* Restart once the message is on screen. Staying in AP mode would leave a
      * second, open network broadcasting from a door indefinitely. */
@@ -168,7 +335,7 @@ $("join").onclick = function () {
       }, 2500);
     }
   }).catch(function (err) {
-    say("bad", "<b>Could not connect</b>" + err.message);
+    say("error", "<div><b>Could not connect</b>" + esc(err.message) + "</div>");
     $("join").disabled = false;
     $("scan").disabled = false;
   });
