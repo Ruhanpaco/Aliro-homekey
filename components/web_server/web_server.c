@@ -345,6 +345,22 @@ static void ws_add_client(int fd)
         return;
     }
 
+    /*
+     * A socket number is only unique while the socket is open. A browser that
+     * reloads gets its descriptor closed and handed straight back out, so the
+     * same fd arrives at a second handshake while the first entry is still in
+     * the table -- which then queues every broadcast twice for one client and
+     * fails the duplicate send with ESP_ERR_INVALID_ARG. Re-registering an fd
+     * we already hold is a reconnection, not a new client.
+     */
+    for (size_t i = 0; i < WS_MAX_CLIENTS; i++) {
+        if (s_ws_clients[i].fd == fd) {
+            xSemaphoreGive(s_ws_clients_mutex);
+            ESP_LOGD(k_tag, "WebSocket client fd=%d reconnected", fd);
+            return;
+        }
+    }
+
     for (size_t i = 0; i < WS_MAX_CLIENTS; i++) {
         if (s_ws_clients[i].fd == -1) {
             s_ws_clients[i].fd = fd;
@@ -967,7 +983,9 @@ static esp_err_t handle_wifi_connect(httpd_req_t *req)
     cJSON_Delete(root);
 
     char ip[16] = {0};
-    const esp_err_t err = net_manager_join(ssid, password, 20000, ip, sizeof(ip));
+    /* Per attempt, and net_manager_join makes two: a successful join lands in
+     * about three seconds, so this bounds the whole request at ~24 s. */
+    const esp_err_t err = net_manager_join(ssid, password, 12000, ip, sizeof(ip));
     if (err != ESP_OK) {
         httpd_resp_set_status(req, "502 Bad Gateway");
         return send_json_response(req, false, NULL,

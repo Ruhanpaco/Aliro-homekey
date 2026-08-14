@@ -336,20 +336,38 @@ esp_err_t net_manager_join(const char *ssid, const char *password, uint32_t time
     strlcpy((char *)wifi_cfg.sta.password, password, sizeof(wifi_cfg.sta.password));
     ESP_RETURN_ON_ERROR(esp_wifi_set_config(WIFI_IF_STA, &wifi_cfg), k_tag, "cannot apply credentials");
 
-    ESP_LOGI(k_tag, "trying to join '%s'", ssid);
-    xEventGroupClearBits(s_net.events, BIT_GOT_IP | BIT_JOIN_FAIL);
-    s_net.joining = true;
+    /*
+     * Two attempts, because one failure means very little. A WPA3-SAE
+     * handshake regularly loses its first association on this radio -- the
+     * observed failure is "auth -> assoc" then straight back to init -- and
+     * the identical retry succeeds. Reporting a wrong password to someone who
+     * typed the right one is the worst answer this function can give.
+     */
+    EventBits_t bits = 0;
+    for (int attempt = 1; attempt <= 2; attempt++) {
+        ESP_LOGI(k_tag, "trying to join '%s' (attempt %d/2)", ssid, attempt);
+        xEventGroupClearBits(s_net.events, BIT_GOT_IP | BIT_JOIN_FAIL);
+        s_net.joining = true;
 
-    (void)esp_wifi_disconnect();
-    const esp_err_t connect_err = esp_wifi_connect();
-    if (connect_err != ESP_OK) {
+        (void)esp_wifi_disconnect();
+        const esp_err_t connect_err = esp_wifi_connect();
+        if (connect_err != ESP_OK) {
+            s_net.joining = false;
+            ESP_RETURN_ON_ERROR(connect_err, k_tag, "esp_wifi_connect failed");
+        }
+
+        bits = xEventGroupWaitBits(s_net.events, BIT_GOT_IP | BIT_JOIN_FAIL, pdFALSE, pdFALSE,
+                                   pdMS_TO_TICKS(timeout_ms));
         s_net.joining = false;
-        ESP_RETURN_ON_ERROR(connect_err, k_tag, "esp_wifi_connect failed");
-    }
 
-    const EventBits_t bits = xEventGroupWaitBits(s_net.events, BIT_GOT_IP | BIT_JOIN_FAIL, pdFALSE, pdFALSE,
-                                                 pdMS_TO_TICKS(timeout_ms));
-    s_net.joining = false;
+        if (bits & BIT_GOT_IP) {
+            break;
+        }
+        if (attempt == 1) {
+            ESP_LOGW(k_tag, "first association with '%s' failed, retrying", ssid);
+            vTaskDelay(pdMS_TO_TICKS(500));
+        }
+    }
 
     if (bits & BIT_GOT_IP) {
         /* These are now the running credentials. Storing them is the caller's

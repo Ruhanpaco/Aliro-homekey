@@ -81,7 +81,9 @@ esp_err_t net_manager_scan(net_scan_result_t *out, size_t max, size_t *out_count
  *
  * @param[in]  ssid       Network to join
  * @param[in]  password   Passphrase, or "" for an open network
- * @param[in]  timeout_ms How long to wait for an IP address
+ * @param[in]  timeout_ms How long to wait for an IP address, per attempt. Two
+ *                        attempts are made: a WPA3-SAE association routinely
+ *                        fails once and then succeeds unchanged.
  * @param[out] out_ip     Assigned address, may be NULL
  * @param[in]  out_ip_len Size of @p out_ip
  * @return ESP_OK on success, ESP_ERR_TIMEOUT if no address arrived, or
