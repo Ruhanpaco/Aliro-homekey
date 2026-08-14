@@ -1,0 +1,70 @@
+name: matter-probe
+
+# Feasibility probe, not part of the firmware build.
+#
+# Espressif ship an Aliro-over-NFC door lock, but only with Thread configs for
+# the ESP32-C6 and ESP32-H2. This project's board is a plain ESP32: Wi-Fi only,
+# no 802.15.4. Nothing in the example gates Aliro on the transport, so the
+# combination should build -- the open questions are whether it does, and
+# whether the result fits a 4 MB part.
+#
+# Answering that costs one build. Guessing at it costs a hardware purchase.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  door-lock-wifi-aliro:
+    runs-on: ubuntu-latest
+    container:
+      image: espressif/esp-matter:latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [esp32, esp32c3]
+
+    steps:
+      - name: Build Espressif's door lock with Aliro over Wi-Fi
+        shell: bash
+        run: |
+          set -euo pipefail
+          . "$IDF_PATH/export.sh"
+          . "$ESP_MATTER_PATH/export.sh"
+
+          cd "$ESP_MATTER_PATH/examples/door_lock"
+
+          # The stock defaults are already Wi-Fi plus BLE for commissioning.
+          # Aliro is a separate switch, so this is the untried combination:
+          # their Aliro configs turn Wi-Fi off and OpenThread on.
+          echo "CONFIG_ENABLE_ALIRO_OVER_NFC=y" > sdkconfig.probe
+          echo "CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y" >> sdkconfig.probe
+
+          idf.py -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.probe" \
+                 set-target ${{ matrix.target }} build 2>&1 | tail -40
+
+      - name: Does it fit
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+          cd "$ESP_MATTER_PATH/examples/door_lock"
+          app=$(ls build/*.bin 2>/dev/null | grep -v bootloader | grep -v partition | head -1)
+          if [ -z "$app" ]; then
+            echo "no application image was produced -- see the build log above"
+            exit 0
+          fi
+
+          size=$(stat -c%s "$app")
+          echo "application: $app"
+          echo "size:        $size bytes ($(( size / 1024 )) KB)"
+          echo
+          echo "  1.875 MB slot (dual-slot OTA, what we ship today): $(( 1966080 - size )) bytes spare"
+          echo "  3.875 MB slot (single slot, OTA dropped):          $(( 4063232 - size )) bytes spare"
+          echo
+          if [ "$size" -le 1966080 ]; then
+            echo "VERDICT: fits with OTA kept."
+          elif [ "$size" -le 4063232 ]; then
+            echo "VERDICT: fits only if OTA is dropped for a single app partition."
+          else
+            echo "VERDICT: does not fit a 4 MB part at all."
+          fi
