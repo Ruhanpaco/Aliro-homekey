@@ -21,6 +21,8 @@
 #include <esp_check.h>
 #include <esp_err.h>
 #include <esp_log.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 #include <nvs_flash.h>
 #include <sdkconfig.h>
 
@@ -138,4 +140,10 @@ void app_main(void)
 
     ESP_LOGI(k_tag, "ready: %u credential(s), transport '%s'", (unsigned)access_control_credential_count(),
              transport_name());
+
+    /* How close the boot came to overflowing this task. A stack overflow here
+     * is a reboot loop with a corrupted backtrace, so the margin is worth
+     * printing rather than guessing at. */
+    ESP_LOGI(k_tag, "main task stack headroom: %u bytes of %d",
+             (unsigned)(uxTaskGetStackHighWaterMark(NULL)), CONFIG_ESP_MAIN_TASK_STACK_SIZE);
 }

@@ -44,6 +44,15 @@ CONFIG_HTTPD_WS_SUPPORT=y
 CONFIG_HTTPD_MAX_REQ_HDR_LEN=1024
 CONFIG_HTTPD_MAX_URI_LEN=512
 
+# --- Main task stack -----------------------------------------------------
+# ESP-IDF defaults the main task to 3584 bytes. app_main parses a JSON config,
+# parses PEM keys through mbedTLS, initialises the Aliro SDK and then brings up
+# Wi-Fi, all on that one stack -- which overflowed on real hardware right as
+# esp_wifi_init() was entered. mbedTLS key parsing is the biggest single
+# consumer and it also fails soft (ESP_FAIL) when the stack is nearly gone,
+# which is a very confusing way to learn about it.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+
 # --- Logging -------------------------------------------------------------
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
 CONFIG_LOG_MAXIMUM_LEVEL_DEBUG=y
