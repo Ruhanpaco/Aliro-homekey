@@ -32,3 +32,15 @@ cc="${CC:-cc}"
     -I"$build" -I"$here/stubs" -I"$src/include"
 
 "$build/test_config"
+
+# The PN532 driver against a simulated chip. Nothing here needs hardware: the
+# fake parses the frames the driver emits and validates both checksums, so a
+# framing mistake fails on a laptop instead of looking like bad wiring.
+"$cc" -std=gnu11 -Wall -Wextra -Wno-unused-parameter -g \
+    -o "$build/test_pn532" \
+    "$here/test_pn532.c" \
+    "$root/components/nfc_transport/pn532.c" \
+    -I"$here/stubs" -I"$root/components/nfc_transport/include" \
+    -I"$root/components/app_config/include"
+
+"$build/test_pn532"

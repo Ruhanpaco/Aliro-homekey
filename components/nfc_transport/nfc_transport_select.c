@@ -25,8 +25,17 @@ const nfc_transport_t *nfc_transport_from_config(const nfc_hw_config_t *cfg)
                  cfg->i2c_scl, cfg->i2c_addr, (unsigned long)cfg->i2c_freq_hz, cfg->irq_pin, cfg->rst_pin);
     }
 
-    /* No chip driver exists yet. Saying so is better than a transport that
-     * silently never sees a card. */
+    if (cfg->chip == NFC_CHIP_PN532) {
+        if (cfg->bus != NFC_BUS_SPI && cfg->bus != NFC_BUS_I2C) {
+            ESP_LOGE(k_tag, "the PN532 needs a bus; pick SPI or I2C in the configuration");
+            return nfc_transport_stub();
+        }
+        return nfc_transport_pn532(cfg);
+    }
+
+    /* The PN7160 and ST25R3916 are offered by the configuration because the
+     * pin validation understands them, but neither has a driver. Saying so is
+     * better than a transport that silently never sees a card. */
     ESP_LOGW(k_tag, "no driver implemented for the selected chip, using the stub transport");
     return nfc_transport_stub();
 }

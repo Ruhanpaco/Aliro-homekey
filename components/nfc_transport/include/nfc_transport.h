@@ -79,6 +79,18 @@ typedef struct nfc_transport_s {
 const nfc_transport_t *nfc_transport_stub(void);
 
 /**
+ * @brief PN532 frontend, over SPI or I2C.
+ *
+ * The only real driver here, because the PN532 is the frontend that is both
+ * widely available and does ISO 14443-4 reader mode with the ISO-DEP layer
+ * inside the chip -- so whole APDUs go down and whole APDUs come back.
+ *
+ * Returns a transport whose init() fails if no chip answers on the configured
+ * pins; the caller keeps running without a reader rather than refusing to boot.
+ */
+const nfc_transport_t *nfc_transport_pn532(const nfc_hw_config_t *cfg);
+
+/**
  * @brief Pick a driver for the configured chip.
  *
  * Falls back to the stub for any chip whose driver is not written yet, and

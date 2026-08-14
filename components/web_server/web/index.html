@@ -750,8 +750,8 @@ main{padding:0 1.5rem 1.5rem;height:100%;overflow-y:auto;background:var(--color-
                 </div>
                 <div>
                   <h3 class="card-title">NFC Reader</h3>
-                  <p class="caption">Reserved and input-only pins are not offered,
-                  and nothing may be assigned twice.</p>
+                  <p class="caption">The PN532 is the only frontend with a driver. Reserved and
+                  input-only pins are not offered, and nothing may be assigned twice.</p>
                 </div>
               </div>
 
@@ -759,10 +759,10 @@ main{padding:0 1.5rem 1.5rem;height:100%;overflow-y:auto;background:var(--color-
                 <div class="form-control">
                   <label class="label" for="nfc_chip"><span class="label-text text-sm">Reader Type</span></label>
                   <select id="nfc_chip" name="nfc.chip" class="select select-sm input-bordered w-full">
-                    <option value="none">None (no driver yet)</option>
+                    <option value="none">None — no reader</option>
                     <option value="pn532">PN532</option>
-                    <option value="pn7160">PN7160</option>
-                    <option value="st25r3916">ST25R3916</option>
+                    <option value="pn7160">PN7160 (no driver yet)</option>
+                    <option value="st25r3916">ST25R3916 (no driver yet)</option>
                   </select>
                 </div>
                 <div class="form-control">
