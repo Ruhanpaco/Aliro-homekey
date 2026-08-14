@@ -71,9 +71,38 @@ esp_err_t access_control_add_credential(const char *cred_pubkey_pem, size_t cred
     ESP_RETURN_ON_FALSE(slot, ESP_ERR_NO_MEM, k_tag, "credential table full");
 
     slot->key_slot_len = sizeof(slot->key_slot);
-    ESP_RETURN_ON_ERROR(
-        aliro_reader_key_slot_from_pubkey(cred_pubkey_pem, cred_pubkey_len, slot->key_slot, &slot->key_slot_len),
-        k_tag, "failed to derive key slot");
+    esp_err_t err =
+        aliro_reader_key_slot_from_pubkey(cred_pubkey_pem, cred_pubkey_len, slot->key_slot, &slot->key_slot_len);
+
+    if (err != ESP_OK) {
+        /*
+         * The SDK reports ESP_FAIL for anything it cannot parse, which covers
+         * a malformed key, the wrong length convention, and (as this project
+         * found the hard way) simply running out of stack. Describe the input
+         * and try the other length convention, so one boot log says which it
+         * is instead of leaving it to guesswork.
+         *
+         * The embedded PEM is NUL-terminated by CMake's TEXT mode and the
+         * length spans that NUL, which is what mbedTLS wants. A caller that
+         * passes strlen() instead lands one byte short.
+         */
+        const bool nul_terminated = cred_pubkey_len > 0 && cred_pubkey_pem[cred_pubkey_len - 1] == '\0';
+        ESP_LOGE(k_tag, "key slot derivation failed for '%s': %d bytes, %s, starts '%.26s'",
+                 label ? label : "unnamed", (int)cred_pubkey_len,
+                 nul_terminated ? "NUL-terminated" : "not NUL-terminated", cred_pubkey_pem);
+
+        if (nul_terminated) {
+            slot->key_slot_len = sizeof(slot->key_slot);
+            err = aliro_reader_key_slot_from_pubkey(cred_pubkey_pem, cred_pubkey_len - 1, slot->key_slot,
+                                                    &slot->key_slot_len);
+            if (err == ESP_OK) {
+                ESP_LOGW(k_tag, "the SDK wants the length WITHOUT the trailing NUL; using %d bytes",
+                         (int)cred_pubkey_len - 1);
+                cred_pubkey_len -= 1;
+            }
+        }
+    }
+    ESP_RETURN_ON_ERROR(err, k_tag, "failed to derive key slot");
 
     slot->pubkey_pem = cred_pubkey_pem;
     slot->pubkey_len = cred_pubkey_len;
