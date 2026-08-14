@@ -13,6 +13,7 @@
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <psa/crypto.h>
 #include <sdkconfig.h>
 
 #include <string.h>
@@ -154,6 +155,31 @@ esp_err_t aliro_reader_sdk_init(size_t fast_transaction_slots)
     if (initialized) {
         return ESP_OK;
     }
+
+    /*
+     * PSA has to be up before anything touches a key.
+     *
+     * esp_aliro_init() does not do it -- it only registers an entropy source
+     * -- and neither does the key-slot derivation path:
+     *
+     *     esp_aliro_get_key_slot_from_cred_pubkey()
+     *       -> crypto::public_key(pem)
+     *            -> mbedtls_pk_parse_public_key()
+     *            -> mbedtls_pk_import_into_psa()      <-- needs PSA
+     *
+     * Inside the SDK psa_crypto_init() is only reached through private_key,
+     * HKDF and the AES-GCM helpers, all of which run once a transaction is
+     * under way. Espressif's own example never notices, because it derives key
+     * slots exclusively from inside the lookup callback, by which point a
+     * session has already warmed PSA up. Deriving one at boot instead lands on
+     * a cold PSA and the parse fails with a bare ESP_FAIL -- which reads
+     * exactly like a malformed key, and cost this project two wrong theories
+     * before the library was disassembled.
+     *
+     * The call is idempotent, so doing it here is free insurance.
+     */
+    const psa_status_t psa = psa_crypto_init();
+    ESP_RETURN_ON_FALSE(psa == PSA_SUCCESS, ESP_FAIL, k_tag, "psa_crypto_init failed: %d", (int)psa);
 
     const esp_aliro_config_t sdk_cfg = {
         .storage_partition_name = NULL, /* default "nvs" partition */
