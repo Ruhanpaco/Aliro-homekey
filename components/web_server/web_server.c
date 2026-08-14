@@ -37,6 +37,8 @@ static const size_t k_max_ws_payload = 8192;
 
 extern const uint8_t index_html_start[] asm("_binary_index_html_start");
 extern const uint8_t index_html_end[] asm("_binary_index_html_end");
+extern const uint8_t setup_html_start[] asm("_binary_setup_html_start");
+extern const uint8_t setup_html_end[] asm("_binary_setup_html_end");
 
 static httpd_handle_t s_server;
 static web_server_hooks_t s_hooks;
@@ -471,12 +473,41 @@ static void status_timer_callback(void *arg)
 
 /* --- handlers ------------------------------------------------------------ */
 
-static esp_err_t handle_index(httpd_req_t *req)
+/** @brief True while the reader is running its own AP with nowhere to go. */
+static bool in_setup_mode(void)
+{
+    net_status_t net;
+    net_manager_get_status(&net);
+    return net.mode == NET_MODE_SETUP_AP;
+}
+
+static esp_err_t send_page(httpd_req_t *req, const uint8_t *start, const uint8_t *end)
 {
     /* EMBED_FILES stores the file verbatim, with no terminator, so the whole
      * span between the symbols is page content. */
     httpd_resp_set_type(req, "text/html");
-    return httpd_resp_send(req, (const char *)index_html_start, index_html_end - index_html_start);
+    return httpd_resp_send(req, (const char *)start, end - start);
+}
+
+static esp_err_t handle_setup(httpd_req_t *req)
+{
+    return send_page(req, setup_html_start, setup_html_end);
+}
+
+static esp_err_t handle_index(httpd_req_t *req)
+{
+    /*
+     * A device still on its own access point has exactly one useful thing to
+     * offer, so offer only that. The full configuration UI assumes a real
+     * network -- it opens a WebSocket, polls status every five seconds and
+     * loads five pages of hardware settings -- none of which a captive-portal
+     * WebView handles well, and none of which can be acted on before the
+     * reader is reachable.
+     */
+    if (in_setup_mode()) {
+        return handle_setup(req);
+    }
+    return send_page(req, index_html_start, index_html_end);
 }
 
 static esp_err_t handle_get_status(httpd_req_t *req)
@@ -1103,7 +1134,10 @@ esp_err_t web_server_start(const web_server_hooks_t *hooks)
         /* OTA endpoint */
         {.uri = "/api/ota", .method = HTTP_POST, .handler = handle_ota_upload, .is_websocket = false},
 
-        /* Setup portal: list networks in range, then join one */
+        /* Setup portal: list networks in range, then join one. /setup stays
+         * reachable after the reader is on a network, so moving it to a
+         * different one does not mean factory-resetting it first. */
+        {.uri = "/setup", .method = HTTP_GET, .handler = handle_setup, .is_websocket = false},
         {.uri = "/api/wifi_scan", .method = HTTP_GET, .handler = handle_wifi_scan, .is_websocket = false},
         {.uri = "/api/wifi_connect", .method = HTTP_POST, .handler = handle_wifi_connect, .is_websocket = false},
 

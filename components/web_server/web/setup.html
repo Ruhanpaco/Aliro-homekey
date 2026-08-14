@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Aliro HomeKey setup</title>
+<style>
+/*
+ * The setup page is deliberately not the configuration UI. It is served into a
+ * captive-portal window -- iOS opens a stripped WebView, not Safari -- which is
+ * a poor place to load 40 kB of app, a WebSocket and a five-page router. One
+ * job here: get the reader onto a network. Everything else waits until it has
+ * a real address.
+ */
+:root{
+  color-scheme:dark;
+  --base-100:#282a36; --base-200:#21222c; --base-300:#191a21;
+  --ink:#f8f8f2; --muted:#a4a7b8; --brand:#ff79c6; --brand-ink:#21222c;
+  --ok:#50fa7b; --bad:#ff5555; --warn:#f1fa8c; --line:rgba(248,248,242,.14);
+}
+*{box-sizing:border-box}
+body{margin:0;padding:20px;background:var(--base-100);color:var(--ink);
+  font:16px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:460px;margin:0 auto}
+h1{font-size:22px;margin:0 0 4px;letter-spacing:-.01em}
+.sub{color:var(--muted);font-size:14px;margin:0 0 22px}
+.card{background:var(--base-200);border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:14px}
+label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px}
+select,input{width:100%;padding:11px 12px;border-radius:9px;background:var(--base-300);
+  color:var(--ink);border:1px solid var(--line);font-size:16px;margin-bottom:14px}
+select:focus,input:focus{outline:none;border-color:var(--brand)}
+button{width:100%;padding:12px;border-radius:9px;border:1px solid var(--line);
+  background:var(--base-300);color:var(--ink);font-size:15px;font-weight:600;cursor:pointer}
+button.primary{background:var(--brand);color:var(--brand-ink);border-color:var(--brand)}
+button:disabled{opacity:.45;cursor:not-allowed}
+.row{display:flex;gap:10px}
+.row button{width:auto;flex:1}
+.msg{border-radius:9px;padding:12px 14px;font-size:14px;margin-top:14px;display:none}
+.msg.show{display:block}
+.msg.ok{background:rgba(80,250,123,.14);border:1px solid rgba(80,250,123,.4)}
+.msg.bad{background:rgba(255,85,85,.14);border:1px solid rgba(255,85,85,.4)}
+.msg.busy{background:rgba(241,250,140,.12);border:1px solid rgba(241,250,140,.35)}
+.msg b{display:block;margin-bottom:3px}
+.msg a{color:var(--ok);font-weight:700}
+.foot{color:var(--muted);font-size:12px;text-align:center;margin-top:18px;line-height:1.5}
+.sig{font-family:ui-monospace,Menlo,monospace}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Aliro HomeKey</h1>
+  <p class="sub">Pick the network this reader should join. It connects before
+    saving anything, so a wrong password is caught now rather than after a reboot.</p>
+
+  <div class="card">
+    <label for="ssid">Network</label>
+    <select id="ssid"><option value="">— tap Scan to see what is nearby —</option></select>
+
+    <div id="passrow">
+      <label for="pass">Password</label>
+      <input id="pass" type="password" autocomplete="off" autocapitalize="off" autocorrect="off">
+    </div>
+
+    <div class="row">
+      <button id="scan" type="button">Scan</button>
+      <button id="join" type="button" class="primary">Connect</button>
+    </div>
+
+    <div id="msg" class="msg"></div>
+  </div>
+
+  <p class="foot">
+    No NFC driver in this build yet, so the reader cannot read a card.<br>
+    Serial console at 115200 baud.
+  </p>
+</div>
+
+<script>
+"use strict";
+var $ = function (id) { return document.getElementById(id); };
+
+function say(kind, html) {
+  var m = $("msg");
+  m.className = "msg show " + kind;
+  m.innerHTML = html;
+}
+
+function bars(rssi) {
+  if (rssi >= -55) return "▂▄▆█";
+  if (rssi >= -67) return "▂▄▆_";
+  if (rssi >= -78) return "▂▄__";
+  return "▂___";
+}
+
+/* Every response is {success, message, data}; callers want the payload. */
+function api(path, options) {
+  return fetch(path, options).then(function (res) {
+    return res.json().catch(function () { return {}; }).then(function (body) {
+      if (!res.ok || body.success === false) {
+        throw new Error(body.error || res.statusText || "request failed");
+      }
+      return body && "data" in body ? body.data : body;
+    });
+  });
+}
+
+$("scan").onclick = function () {
+  var btn = $("scan");
+  btn.disabled = true;
+  btn.textContent = "Scanning…";
+  say("busy", "Looking for networks…");
+
+  api("/api/wifi_scan").then(function (data) {
+    var sel = $("ssid"), nets = data.networks || [];
+    sel.innerHTML = "";
+    if (!nets.length) {
+      sel.appendChild(new Option("— nothing in range —", ""));
+      say("bad", "No networks found. Move the reader closer to your router and scan again.");
+    } else {
+      sel.appendChild(new Option("— pick a network —", ""));
+      for (var i = 0; i < nets.length; i++) {
+        var n = nets[i];
+        var opt = new Option(bars(n.rssi) + "  " + n.ssid + (n.open ? "" : "  🔒"), n.ssid);
+        opt.dataset.open = n.open ? "1" : "";
+        sel.appendChild(opt);
+      }
+      say("ok", nets.length + " network" + (nets.length === 1 ? "" : "s") + " found.");
+    }
+  }).catch(function (err) {
+    say("bad", "Scan failed: " + err.message);
+  }).then(function () {
+    btn.disabled = false;
+    btn.textContent = "Scan";
+  });
+};
+
+/* An open network has nothing to type, so stop asking for it. */
+$("ssid").onchange = function () {
+  var opt = this.selectedOptions[0];
+  $("passrow").style.display = (opt && opt.dataset.open) ? "none" : "block";
+};
+
+$("join").onclick = function () {
+  var ssid = $("ssid").value;
+  if (!ssid) { say("bad", "Pick a network first."); return; }
+
+  $("join").disabled = true;
+  $("scan").disabled = true;
+  say("busy", "<b>Joining " + ssid + "…</b>This can take up to half a minute. Stay on this page.");
+
+  api("/api/wifi_connect", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ssid: ssid, password: $("pass").value })
+  }).then(function (data) {
+    var url = "http://" + data.ip + "/";
+    say("ok",
+      "<b>Connected to " + data.ssid + "</b>" +
+      "This reader is now at <a href=\"" + url + "\">" + url + "</a> on your network." +
+      (data.saved ? "" : "<br>Warning: the credentials could not be stored and will not survive a restart.") +
+      "<br><br>Restarting so it leaves this setup network… rejoin your own Wi-Fi and open the address above.");
+
+    /* Restart once the message is on screen. Staying in AP mode would leave a
+     * second, open network broadcasting from a door indefinitely. */
+    if (data.saved) {
+      setTimeout(function () {
+        api("/api/reboot", { method: "POST" }).catch(function () { /* the reset is the reply */ });
+      }, 2500);
+    }
+  }).catch(function (err) {
+    say("bad", "<b>Could not connect</b>" + err.message);
+    $("join").disabled = false;
+    $("scan").disabled = false;
+  });
+};
+
+/* One tap fewer: the list is almost always the first thing wanted. */
+$("scan").click();
+</script>
+</body>
+</html>
