@@ -148,6 +148,24 @@ static void reader_task(void *params)
 
 /* --- Public API ---------------------------------------------------------- */
 
+esp_err_t aliro_reader_sdk_init(size_t fast_transaction_slots)
+{
+    static bool initialized;
+    if (initialized) {
+        return ESP_OK;
+    }
+
+    const esp_aliro_config_t sdk_cfg = {
+        .storage_partition_name = NULL, /* default "nvs" partition */
+        .fast_transaction_storage_size = fast_transaction_slots,
+    };
+    ESP_RETURN_ON_ERROR(esp_aliro_init(&sdk_cfg), k_tag, "esp_aliro_init failed");
+
+    initialized = true;
+    ESP_LOGI(k_tag, "Aliro SDK initialized");
+    return ESP_OK;
+}
+
 esp_err_t aliro_reader_start(const aliro_reader_config_t *cfg)
 {
     ESP_RETURN_ON_FALSE(cfg && cfg->transport && cfg->reader_pubkey_pem && cfg->reader_privkey_pem &&
@@ -164,11 +182,7 @@ esp_err_t aliro_reader_start(const aliro_reader_config_t *cfg)
     ESP_RETURN_ON_ERROR(t->init(t->ctx), k_tag, "NFC transport '%s' failed to initialize", t->name);
     ESP_LOGI(k_tag, "NFC transport: %s", t->name);
 
-    const esp_aliro_config_t sdk_cfg = {
-        .storage_partition_name = NULL, /* default "nvs" partition */
-        .fast_transaction_storage_size = cfg->fast_transaction_slots,
-    };
-    ESP_RETURN_ON_ERROR(esp_aliro_init(&sdk_cfg), k_tag, "esp_aliro_init failed");
+    ESP_RETURN_ON_ERROR(aliro_reader_sdk_init(cfg->fast_transaction_slots), k_tag, "SDK init failed");
 
     esp_aliro_reader_config_t reader_cfg = {
         .reader_pubkey = s_reader.cfg.reader_pubkey_pem,

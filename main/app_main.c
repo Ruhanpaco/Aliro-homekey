@@ -83,9 +83,19 @@ void app_main(void)
     ESP_LOGI(k_tag, "device '%s'", cfg->device_name);
 
     ESP_ERROR_CHECK(access_control_init(&cfg->lock));
-    ESP_ERROR_CHECK(access_control_add_credential(credential_pubkey_pem_start,
-                                                  (size_t)(credential_pubkey_pem_end - credential_pubkey_pem_start),
-                                                  "dev-credential"));
+
+    /* Before the credential store, because deriving a key slot is an SDK call
+     * and the SDK reports "cannot be parsed" when it is simply not up yet. */
+    ESP_ERROR_CHECK(aliro_reader_sdk_init(CONFIG_ALIRO_READER_FAST_TRANSACTION_SLOTS));
+
+    /* Not fatal. A credential that will not parse means nobody can open this
+     * door, which is bad -- but a reader stuck in a boot loop cannot even be
+     * reconfigured to fix it, which is worse. */
+    if (access_control_add_credential(credential_pubkey_pem_start,
+                                      (size_t)(credential_pubkey_pem_end - credential_pubkey_pem_start),
+                                      "dev-credential") != ESP_OK) {
+        ESP_LOGE(k_tag, "development credential rejected; the reader will refuse every tap");
+    }
 
     start_reader(cfg);
 

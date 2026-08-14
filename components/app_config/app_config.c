@@ -539,8 +539,15 @@ char *app_config_hardware_caps_json(void)
 
 static esp_err_t load_from_nvs(app_config_t *cfg)
 {
+    /* On a blank NVS the namespace does not exist yet. That is what a first
+     * boot looks like, so it is reported quietly and the caller falls back to
+     * defaults. */
     nvs_handle_t handle;
-    ESP_RETURN_ON_ERROR(nvs_open(k_nvs_namespace, NVS_READONLY, &handle), k_tag, "nvs_open failed");
+    const esp_err_t open_err = nvs_open(k_nvs_namespace, NVS_READONLY, &handle);
+    if (open_err == ESP_ERR_NVS_NOT_FOUND) {
+        return ESP_ERR_NVS_NOT_FOUND;
+    }
+    ESP_RETURN_ON_ERROR(open_err, k_tag, "nvs_open failed");
 
     size_t len = 0;
     esp_err_t err = nvs_get_str(handle, k_nvs_key, NULL, &len);

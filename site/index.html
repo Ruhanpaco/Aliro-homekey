@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Aliro HomeKey — an open Aliro reader for the ESP32</title>
+<meta name="description" content="Open-source ESP32 reader for Aliro, the cross-ecosystem standard for phone-based access credentials. Flash it from your browser.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><text y='20' font-size='20'>%F0%9F%94%91</text></svg>">
+<style>
+/* Same palette the firmware's own console uses: daisyUI `dracula`. One product,
+   one look. */
+:root{
+  color-scheme:dark;
+  --base-100:oklch(28.822% 0.022 277.508);
+  --base-200:oklch(26.805% 0.02 277.508);
+  --base-300:oklch(24.787% 0.019 277.508);
+  --content:oklch(97.747% 0.007 106.545);
+  --primary:oklch(75.461% 0.183 346.812);
+  --primary-content:oklch(15.092% 0.036 346.812);
+  --info:oklch(88.263% 0.093 212.846);
+  --success:oklch(87.099% 0.219 148.024);
+  --warning:oklch(95.533% 0.134 112.757);
+  --warning-content:oklch(19.106% 0.026 112.757);
+  --error:oklch(68.22% 0.206 24.43);
+  --radius:1rem;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --muted:color-mix(in oklab,var(--content) 62%,transparent);
+  --line:color-mix(in oklab,var(--content) 14%,transparent);
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--base-100);color:var(--content);
+  font:16px/1.65 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+a{color:var(--info)}
+.wrap{max-width:860px;margin:0 auto;padding:0 20px}
+h1,h2,h3{line-height:1.2;text-wrap:balance;margin:0}
+code,kbd{font-family:var(--mono);font-size:.9em;background:var(--base-300);
+  border-radius:6px;padding:2px 6px}
+
+header{border-bottom:1px solid var(--line);padding:56px 0 40px}
+.eyebrow{font:600 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;
+  color:var(--primary);margin-bottom:14px}
+header h1{font-size:clamp(30px,6vw,46px);letter-spacing:-.02em}
+header p.lede{font-size:clamp(16px,2.4vw,19px);color:var(--muted);margin:14px 0 0;max-width:60ch}
+.cta{display:flex;flex-wrap:wrap;gap:12px;margin-top:26px}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:11px 18px;border-radius:10px;
+  font-weight:600;font-size:15px;text-decoration:none;border:1px solid var(--line);
+  color:var(--content);background:var(--base-200)}
+.btn:hover{border-color:var(--primary)}
+.btn.primary{background:var(--primary);color:var(--primary-content);border-color:var(--primary)}
+
+section{padding:44px 0;border-bottom:1px solid var(--line)}
+section h2{font-size:24px;letter-spacing:-.01em}
+section > .wrap > p{color:var(--muted);max-width:68ch}
+
+.banner{border-radius:var(--radius);padding:16px 20px;margin:28px 0 0;
+  background:color-mix(in oklab,var(--warning) 16%,transparent);
+  border:1px solid color-mix(in oklab,var(--warning) 40%,transparent)}
+.banner strong{color:var(--warning)}
+.banner p{margin:6px 0 0;color:var(--content);font-size:15px}
+
+pre.flow{background:var(--base-200);border:1px solid var(--line);border-radius:var(--radius);
+  padding:20px;overflow-x:auto;font-family:var(--mono);font-size:13px;line-height:1.7;
+  color:var(--muted);margin:24px 0 0}
+
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px;margin-top:26px}
+.card{background:var(--base-200);border:1px solid var(--line);border-radius:var(--radius);padding:20px}
+.card h3{font-size:15px;margin-bottom:6px}
+.card p{margin:0;font-size:14px;color:var(--muted)}
+
+ul.plain{margin:18px 0 0;padding-left:20px;color:var(--muted)}
+ul.plain li{margin-bottom:8px}
+ul.plain strong{color:var(--content)}
+
+/* --- flasher --- */
+.flash-card{background:var(--base-200);border:1px solid var(--line);
+  border-radius:var(--radius);padding:26px;margin-top:26px}
+.steps{counter-reset:s;list-style:none;padding:0;margin:0 0 22px}
+.steps li{counter-increment:s;position:relative;padding-left:38px;margin-bottom:12px;
+  color:var(--muted);font-size:15px}
+.steps li::before{content:counter(s);position:absolute;left:0;top:1px;
+  width:24px;height:24px;border-radius:50%;display:grid;place-items:center;
+  background:var(--base-300);color:var(--content);font:600 12px/1 var(--mono)}
+.steps li strong{color:var(--content)}
+esp-web-install-button{--esp-tools-button-color:var(--primary-content);
+  --esp-tools-button-text-color:var(--primary-content)}
+.unsupported{display:none;border-radius:10px;padding:14px 16px;font-size:14px;
+  background:color-mix(in oklab,var(--error) 14%,transparent);
+  border:1px solid color-mix(in oklab,var(--error) 40%,transparent)}
+.fallback{margin-top:22px;font-size:14px;color:var(--muted)}
+.fallback pre{background:var(--base-300);border-radius:10px;padding:14px;overflow-x:auto;
+  font-family:var(--mono);font-size:12.5px;color:var(--content)}
+table{width:100%;border-collapse:collapse;margin-top:18px;font-size:14px}
+th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line)}
+th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.06em}
+td code{background:var(--base-300)}
+
+footer{padding:36px 0 56px;color:var(--muted);font-size:14px}
+footer a{color:var(--muted)}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <div class="eyebrow">Open source · ESP32 · Apache-2.0</div>
+    <h1>Aliro HomeKey</h1>
+    <p class="lede">An open-source door reader for <strong>Aliro</strong> — the
+      Connectivity Standards Alliance standard that Apple, Google and Samsung
+      wallets all implement. Build the reader once, and any compliant wallet can
+      carry a key for it.</p>
+    <div class="cta">
+      <a class="btn primary" href="#flash">Flash it from your browser</a>
+      <a class="btn" href="https://github.com/Ruhanpaco/Aliro-homekey">View on GitHub</a>
+    </div>
+
+    <div class="banner">
+      <strong>v0.1 — beta, and honest about it.</strong>
+      <p>The firmware compiles for ESP32 and ESP32-S3 and boots into a
+        configuration UI, but there is <strong>no NFC chip driver yet</strong>, so it
+        cannot read a card or complete an Aliro transaction. It has also never
+        been run on hardware. Flash it on a bench, not on a door.</p>
+    </div>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <h2>The idea</h2>
+    <p>Putting a key in a phone used to mean picking one vendor's stack — Apple
+      Home Key for iPhones, something else for Android. Aliro is the common
+      protocol underneath all of them.</p>
+<pre class="flow"> Apple Wallet   Google Wallet   Samsung Wallet   other Aliro wallets
+        └───────────────┴───────┬───────┴────────────────┘
+                                │  Aliro (one protocol, all of them)
+                                ▼
+                        ESP32 Aliro Reader     ← this project
+                                │
+                                ▼
+                         Access / Lock</pre>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>What's in it</h2>
+    <div class="grid">
+      <div class="card">
+        <h3>Aliro transactions</h3>
+        <p>Built on Espressif's prebuilt <code>esp_aliro_lib</code>: reader
+          lifecycle, session loop, expedited phase, and credential lookup by
+          Aliro key slot.</p>
+      </div>
+      <div class="card">
+        <h3>Configure without rebuilding</h3>
+        <p>NFC chip, bus, every pin, lock output, Wi-Fi and MQTT live in NVS and
+          are edited in the browser. Pins wired to flash are never offered.</p>
+      </div>
+      <div class="card">
+        <h3>Web console on the device</h3>
+        <p>Info, MQTT, Actions, Misc and Logs pages, served by the ESP32 itself
+          with no bundler and no CDN.</p>
+      </div>
+      <div class="card">
+        <h3>Setup access point</h3>
+        <p>A board with no credentials still comes up reachable, with a captive
+          portal at <code>192.168.4.1</code>.</p>
+      </div>
+      <div class="card">
+        <h3>MQTT &amp; Home Assistant</h3>
+        <p>Retained lock state, per-tap events, unlock commands, and discovery so
+          the lock appears without YAML. Off by default.</p>
+      </div>
+      <div class="card">
+        <h3>Serial debug console</h3>
+        <p><code>status</code>, <code>nfc</code>, <code>unlock</code>,
+          <code>wifi</code> and more at 115200 baud — works with no network at
+          all, which is how a fresh board arrives.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="flash">
+  <div class="wrap">
+    <h2>Flash it</h2>
+    <p>Connect an ESP32 over USB and install the firmware straight from this
+      page. Nothing to download, nothing to install.</p>
+
+    <div class="flash-card">
+      <ol class="steps">
+        <li>Plug the board in over USB. It needs <strong>4&nbsp;MB of flash</strong> — an
+          ESP32-WROOM-32 DevKitC or an ESP32-S3 DevKit.</li>
+        <li>Press <strong>Connect</strong> and pick the serial port. On a first install,
+          choose <strong>Erase device</strong> when offered.</li>
+        <li>When it finishes, the reader starts a Wi-Fi network called
+          <strong><code>Aliro-Setup-XXXX</code></strong>, password
+          <code>aliro1234</code>. Join it and the configuration page opens.</li>
+      </ol>
+
+      <esp-web-install-button manifest="manifest.json">
+        <button slot="activate" class="btn primary">Connect &amp; install</button>
+        <span slot="unsupported" class="unsupported" style="display:block">
+          This browser can't talk to serial ports. Use <strong>Chrome</strong> or
+          <strong>Edge</strong> on a desktop — Safari and Firefox don't implement
+          Web Serial.
+        </span>
+        <span slot="not-allowed" class="unsupported" style="display:block">
+          Serial access needs a secure connection (https).
+        </span>
+      </esp-web-install-button>
+
+      <div class="fallback">
+        <p>Prefer the command line? Grab
+          <code>esp32.firmware.factory.bin</code> from the
+          <a href="https://github.com/Ruhanpaco/Aliro-homekey/releases">releases page</a>
+          and write it at offset&nbsp;<code>0</code>:</p>
+        <pre>esptool.py --chip esp32 --port /dev/ttyUSB0 --baud 460800 \
+  write_flash 0x0 esp32.firmware.factory.bin</pre>
+      </div>
+    </div>
+
+    <table>
+      <thead><tr><th>File</th><th>Offset</th><th>What it is</th></tr></thead>
+      <tbody>
+        <tr><td><code>&lt;target&gt;.firmware.factory.bin</code></td><td><code>0x0</code></td>
+            <td>Everything — bootloader, partition table, OTA data and app — padded to the full flash. Use this.</td></tr>
+        <tr><td><code>&lt;target&gt;.firmware.bin</code></td><td><code>0x20000</code></td>
+            <td>The application alone, for a faster reflash once a board is already set up.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>After it boots</h2>
+    <p>Open a serial monitor at <strong>115200 baud</strong> and press Enter for a
+      prompt. The console works before Wi-Fi exists, which is the point.</p>
+<pre class="flow">aliro&gt; status     device, network, reader and MQTT state
+aliro&gt; nfc        NFC wiring, and what the driver situation is
+aliro&gt; unlock     drive the lock output now (GPIO 2 = on-board LED)
+aliro&gt; wifi MyNetwork hunter2
+aliro&gt; restart</pre>
+    <p style="margin-top:20px"><code>unlock</code> lighting the on-board LED for three
+      seconds is the first end-to-end proof that configuration, access control and
+      the GPIO output all work together.</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Known limitations</h2>
+    <ul class="plain">
+      <li><strong>No NFC driver.</strong> The transport is a stub that never detects a
+        device. This is the single biggest missing piece.</li>
+      <li><strong>No authentication on the web UI.</strong> Anyone on the network can
+        reconfigure the reader.</li>
+      <li><strong>Credential provisioning is unsolved.</strong> How a real wallet comes
+        to hold a credential for this reader is an ecosystem process the SDK does
+        not cover.</li>
+      <li><strong>Never run on hardware.</strong> Booting, Wi-Fi and the lock output are
+        all expected to work and none have been observed.</li>
+    </ul>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>Built on <a href="https://github.com/espressif/esp-aliro">espressif/esp-aliro</a>.
+      Structure, GPIO tables and UI style adapted from
+      <a href="https://github.com/rednblkx/HomeKey-ESP32">HomeKey-ESP32</a> (MIT),
+      with <a href="https://github.com/kormax/aliro">kormax/aliro</a> as the protocol
+      reference. Apache-2.0.</p>
+    <p>Aliro is a trademark of the Connectivity Standards Alliance. This project is
+      not affiliated with or endorsed by the CSA, Espressif, Apple, Google or
+      Samsung.</p>
+  </div>
+</footer>
+
+<script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js"></script>
+</body>
+</html>

@@ -84,6 +84,19 @@ typedef struct {
 } aliro_reader_config_t;
 
 /**
+ * @brief Initialize the Aliro SDK.
+ *
+ * Everything else in this header, including
+ * aliro_reader_key_slot_from_pubkey(), needs the SDK up first — the helpers
+ * fail with ESP_FAIL otherwise, which reads like a bad key rather than a
+ * missing init. Idempotent, and aliro_reader_start() calls it for you.
+ *
+ * @param[in] fast_transaction_slots Persistent fast-transaction key slots,
+ *                                   0 to disable fast transactions
+ */
+esp_err_t aliro_reader_sdk_init(size_t fast_transaction_slots);
+
+/**
  * @brief Initialize the Aliro SDK, create the reader and start the polling task.
  *
  * The SDK supports one reader at a time, so this module is a singleton.
