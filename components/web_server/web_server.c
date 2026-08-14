@@ -1071,6 +1071,32 @@ static esp_err_t handle_wifi_scan(httpd_req_t *req)
 }
 
 /*
+ * "Try again" from the portal, using the credentials already stored. This is
+ * the way back after the reader has given up on a network that was only
+ * temporarily gone -- a rebooting router, a breaker, a neighbour's microwave.
+ */
+static esp_err_t handle_wifi_reconnect(httpd_req_t *req)
+{
+    char ip[16] = {0};
+    const esp_err_t err = net_manager_reconnect(12000, ip, sizeof(ip));
+
+    if (err == ESP_ERR_INVALID_STATE) {
+        httpd_resp_set_status(req, "409 Conflict");
+        return send_json_response(req, false, NULL, "no network has been configured yet", NULL);
+    }
+    if (err != ESP_OK) {
+        httpd_resp_set_status(req, "502 Bad Gateway");
+        return send_json_response(req, false, NULL, "still cannot reach that network", NULL);
+    }
+
+    cJSON *data = cJSON_CreateObject();
+    cJSON_AddStringToObject(data, "ssid", app_config_get()->net.ssid);
+    cJSON_AddStringToObject(data, "ip", ip);
+    cJSON_AddBoolToObject(data, "saved", true);
+    return send_json_response(req, true, "Reconnected", NULL, data);
+}
+
+/*
  * Join a network from the setup portal. The access point stays up throughout,
  * so this can answer with either the new address or the reason it failed --
  * the alternative is saving a possibly-wrong password, rebooting, and leaving
@@ -1232,6 +1258,7 @@ esp_err_t web_server_start(const web_server_hooks_t *hooks)
         {.uri = "/setup", .method = HTTP_GET, .handler = handle_setup, .is_websocket = false},
         {.uri = "/api/wifi_scan", .method = HTTP_GET, .handler = handle_wifi_scan, .is_websocket = false},
         {.uri = "/api/wifi_connect", .method = HTTP_POST, .handler = handle_wifi_connect, .is_websocket = false},
+        {.uri = "/api/wifi_reconnect", .method = HTTP_POST, .handler = handle_wifi_reconnect, .is_websocket = false},
 
         /*
          * Connectivity probes. Every OS fetches a known URL after joining a

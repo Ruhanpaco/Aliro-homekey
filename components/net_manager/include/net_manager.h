@@ -92,6 +92,22 @@ esp_err_t net_manager_scan(net_scan_result_t *out, size_t max, size_t *out_count
 esp_err_t net_manager_join(const char *ssid, const char *password, uint32_t timeout_ms, char *out_ip,
                            size_t out_ip_len);
 
+/**
+ * @brief Try the stored network again, and stand down the access point if it works.
+ *
+ * After three failed attempts the reader stops reconnecting on its own and
+ * brings up its access point, so this is the deliberate "try again" a person
+ * reaches for from the portal once the router is back. On success the access
+ * point is stopped a few seconds later -- long enough for the answer to reach
+ * the browser that asked -- leaving the reader on Wi-Fi only.
+ *
+ * @param[in]  timeout_ms How long to wait for an address, per attempt
+ * @param[out] out_ip     Assigned address, may be NULL
+ * @param[in]  out_ip_len Size of @p out_ip
+ * @return ESP_ERR_INVALID_STATE when no network has ever been configured.
+ */
+esp_err_t net_manager_reconnect(uint32_t timeout_ms, char *out_ip, size_t out_ip_len);
+
 #ifdef __cplusplus
 }
 #endif

@@ -149,6 +149,22 @@ footer{background:var(--color-base-200);padding:1rem;text-align:center;font-size
           </div>
         </div>
 
+        <!-- Shown only when a network is already stored: this reader had one
+             and lost it, so offer the way back before offering a fresh setup. -->
+        <div id="known" class="hidden">
+          <h2 class="card-title">Reconnect</h2>
+          <p class="lede muted">This reader is set up for <b id="known_ssid"></b> but could not
+            reach it. If the router is back, try again — the access point shuts down once it
+            connects and the reader goes back to being reachable over Wi-Fi.</p>
+          <div id="known_msg" class="alert hidden" style="margin-top:1rem"></div>
+          <button id="retry" class="btn btn-primary btn-block" type="button" style="margin-top:1rem">
+            Try again
+          </button>
+          <button id="switch" class="btn btn-outline btn-block" type="button" style="margin-top:.5rem">
+            Use a different network
+          </button>
+        </div>
+
         <div id="form">
           <h2 class="card-title">Configure Your Device</h2>
           <p class="lede muted">Pick the network this reader should join. It connects
@@ -341,8 +357,55 @@ $("join").onclick = function () {
   });
 };
 
-/* One tap fewer: the list is almost always the first thing wanted. */
-$("scan").click();
+/* --- already-configured reader that lost its network --------------------- */
+
+function showKnownNetwork(ssid) {
+  $("known_ssid").textContent = ssid;
+  $("known").classList.remove("hidden");
+  $("form").classList.add("hidden");
+}
+
+$("switch").onclick = function () {
+  $("known").classList.add("hidden");
+  $("form").classList.remove("hidden");
+  $("scan").click();
+};
+
+$("retry").onclick = function () {
+  $("retry").disabled = true;
+  $("switch").disabled = true;
+  var m = $("known_msg");
+  m.className = "alert show";
+  m.innerHTML = '<span class="spinner"></span><div><b>Reconnecting</b>Give this up to half a minute.</div>';
+
+  api("/api/wifi_reconnect", { method: "POST" }).then(function (data) {
+    var url = "http://" + data.ip + "/";
+    $("done_ip").innerHTML = 'IP Address: <a href="' + esc(url) + '">' + esc(data.ip) + "</a>";
+    $("done_note").textContent =
+      "Back on " + data.ssid + ". This access point shuts down in a few seconds — rejoin your " +
+      "own Wi-Fi and use the address above.";
+    $("known").classList.add("hidden");
+    $("done").classList.remove("hidden");
+  }).catch(function (err) {
+    m.className = "alert alert-error";
+    m.innerHTML = "<div><b>Still no luck</b>" + esc(err.message) +
+                  "<br>If the network is gone for good, use a different one below.</div>";
+    $("retry").disabled = false;
+    $("switch").disabled = false;
+  });
+};
+
+/* Decide which of the two flows this is before touching the radio: scanning
+   takes a couple of seconds and interrupts the access point while it runs. */
+api("/api/config").then(function (cfg) {
+  if (cfg && cfg.net && cfg.net.ssid) {
+    showKnownNetwork(cfg.net.ssid);
+  } else {
+    $("scan").click();
+  }
+}).catch(function () {
+  $("scan").click();
+});
 </script>
 </body>
 </html>

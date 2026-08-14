@@ -12,6 +12,7 @@
 #include <esp_log.h>
 #include <esp_mac.h>
 #include <esp_netif.h>
+#include <esp_timer.h>
 #include <esp_wifi.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/event_groups.h>
@@ -21,7 +22,21 @@
 #include <string.h>
 
 static const char *const k_tag = "aliro/net";
-static const int k_max_join_attempts = 5;
+
+/*
+ * Three attempts, spaced out, then stop and put the access point up.
+ *
+ * The spacing matters as much as the count: the old code spent its retries
+ * back to back, about two seconds in total, so a router that takes half a
+ * minute to reboot lost that race every time. Five seconds apart means three
+ * attempts cover a quarter of a minute, which rides out a brief blip without
+ * leaving a door reader hammering a network that is not coming back.
+ *
+ * After that it stops trying. Recovery is deliberate: the access point comes
+ * up, and someone uses Reconnect in the portal.
+ */
+static const int k_max_join_attempts = 3;
+static const uint32_t k_retry_delay_ms = 5000;
 
 #define BIT_GOT_IP    BIT0
 #define BIT_JOIN_FAIL BIT1
@@ -38,6 +53,8 @@ static struct {
      * browser gets an answer rather than watching a silent retry loop. */
     bool joining;
     bool ap_up;
+    esp_timer_handle_t retry_timer;
+    esp_timer_handle_t ap_stop_timer;
 } s_net;
 
 static void start_setup_ap(void);
@@ -70,10 +87,16 @@ static void on_wifi_event(void *arg, esp_event_base_t base, int32_t id, void *da
         }
         s_net.status.ip[0] = '\0';
         if (++s_net.join_attempts <= k_max_join_attempts) {
-            ESP_LOGW(k_tag, "join failed, retry %d/%d", s_net.join_attempts, k_max_join_attempts);
-            esp_wifi_connect();
+            ESP_LOGW(k_tag, "lost '%s', retry %d/%d in %u ms", s_net.cfg.ssid, s_net.join_attempts,
+                     k_max_join_attempts, (unsigned)k_retry_delay_ms);
+            /* Through a timer, not from here: reconnecting inside the Wi-Fi
+             * event handler retries instantly, which burns every attempt
+             * before a rebooting router has finished coming up. */
+            (void)esp_timer_stop(s_net.retry_timer);
+            ESP_ERROR_CHECK_WITHOUT_ABORT(esp_timer_start_once(s_net.retry_timer, k_retry_delay_ms * 1000ULL));
         } else {
-            ESP_LOGW(k_tag, "cannot join '%s', falling back to setup AP", s_net.cfg.ssid);
+            ESP_LOGW(k_tag, "gave up on '%s' after %d attempts; starting the setup access point",
+                     s_net.cfg.ssid, k_max_join_attempts);
             start_setup_ap();
         }
         break;
@@ -108,6 +131,36 @@ static void on_got_ip(void *arg, esp_event_base_t base, int32_t id, void *data)
 
     ESP_LOGI(k_tag, "joined '%s' -- configuration UI at http://%s/", s_net.status.ssid, s_net.status.ip);
     xEventGroupSetBits(s_net.events, BIT_GOT_IP);
+}
+
+static void retry_timer_cb(void *arg)
+{
+    (void)arg;
+    if (s_net.joining || s_net.status.mode != NET_MODE_STA) {
+        return; /* a portal-driven join is in flight, or the AP already took over */
+    }
+    ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_connect());
+}
+
+/*
+ * Take the access point back down, leaving a plain station.
+ *
+ * Deferred behind a timer by its caller, because doing this the instant a
+ * reconnect succeeds cuts off the very browser that asked for it -- the reply
+ * has to reach the portal first.
+ */
+static void stop_setup_ap(void *arg)
+{
+    (void)arg;
+    if (!s_net.ap_up) {
+        return;
+    }
+
+    dns_hijack_stop();
+    ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_set_mode(WIFI_MODE_STA));
+    s_net.ap_up = false;
+    ESP_LOGI(k_tag, "setup access point stopped; reachable on '%s' at http://%s/ only", s_net.status.ssid,
+             s_net.status.ip);
 }
 
 static void ap_ssid(char *out, size_t out_len)
@@ -207,6 +260,11 @@ esp_err_t net_manager_start(const net_config_t *cfg)
 
     s_net.events = xEventGroupCreate();
     ESP_RETURN_ON_FALSE(s_net.events, ESP_ERR_NO_MEM, k_tag, "event group allocation failed");
+
+    const esp_timer_create_args_t retry_args = {.callback = retry_timer_cb, .name = "wifi_retry"};
+    ESP_RETURN_ON_ERROR(esp_timer_create(&retry_args, &s_net.retry_timer), k_tag, "retry timer create failed");
+    const esp_timer_create_args_t ap_stop_args = {.callback = stop_setup_ap, .name = "ap_stop"};
+    ESP_RETURN_ON_ERROR(esp_timer_create(&ap_stop_args, &s_net.ap_stop_timer), k_tag, "ap timer create failed");
 
     ESP_RETURN_ON_ERROR(esp_netif_init(), k_tag, "esp_netif_init failed");
     const esp_err_t loop_err = esp_event_loop_create_default();
@@ -318,6 +376,14 @@ esp_err_t net_manager_scan(net_scan_result_t *out, size_t max, size_t *out_count
     return ESP_OK;
 }
 
+esp_err_t net_manager_reconnect(uint32_t timeout_ms, char *out_ip, size_t out_ip_len)
+{
+    /* The stored network, with the stored password. Someone standing at the
+     * portal after an outage wants "try again", not to type it all back in. */
+    ESP_RETURN_ON_FALSE(s_net.cfg.ssid[0] != '\0', ESP_ERR_INVALID_STATE, k_tag, "no network configured");
+    return net_manager_join(s_net.cfg.ssid, s_net.cfg.password, timeout_ms, out_ip, out_ip_len);
+}
+
 esp_err_t net_manager_join(const char *ssid, const char *password, uint32_t timeout_ms, char *out_ip,
                            size_t out_ip_len)
 {
@@ -377,6 +443,15 @@ esp_err_t net_manager_join(const char *ssid, const char *password, uint32_t time
         s_net.join_attempts = 0;
         if (out_ip && out_ip_len) {
             strlcpy(out_ip, s_net.status.ip, out_ip_len);
+        }
+
+        /* The network is back, so the access point has done its job. Give the
+         * browser a few seconds to receive the address first -- taking the AP
+         * down is what disconnects it. */
+        if (s_net.ap_up) {
+            ESP_LOGI(k_tag, "reconnected; stopping the setup access point shortly");
+            (void)esp_timer_stop(s_net.ap_stop_timer);
+            ESP_ERROR_CHECK_WITHOUT_ABORT(esp_timer_start_once(s_net.ap_stop_timer, 5 * 1000000ULL));
         }
         return ESP_OK;
     }
