@@ -7,10 +7,13 @@ can be an iPhone, a Pixel or a Galaxy, because the reader speaks
 [Aliro](https://csa-iot.org/all-solutions/aliro/), the cross-ecosystem standard
 for mobile access credentials, rather than any one vendor's protocol.
 
-> **Status: foundation phase.** The project structure, the build, the
-> transaction plumbing and the configuration web service exist. There is no
-> NFC chip driver yet, so the firmware builds, boots, serves its UI and polls,
-> but cannot yet open anything. See [docs/ROADMAP.md](docs/ROADMAP.md).
+> **Status: v0.1 — it builds and boots, it does not read cards yet.** The
+> project structure, the Aliro transaction plumbing, the configuration web
+> service, MQTT and a serial debug console are in place, and CI builds them
+> for ESP32 and ESP32-S3 on ESP-IDF 5.4 and 5.5. There is still **no NFC chip
+> driver**, so no card is ever detected and no Aliro transaction ever runs.
+> See [docs/FIRST-TEST.md](docs/FIRST-TEST.md) to put it on a board, and
+> [docs/ROADMAP.md](docs/ROADMAP.md) for what is missing.
 
 ## What this is, in plain terms
 
@@ -136,6 +139,7 @@ copy from the firmware's own page.
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — the seams, and why they are where they are
 - [docs/WEB.md](docs/WEB.md) — the configuration service, its API, and what was left out
+- [docs/FIRST-TEST.md](docs/FIRST-TEST.md) — flashing a board and what a healthy boot looks like
 - [docs/ROADMAP.md](docs/ROADMAP.md) — milestones, and the honest list of unknowns
 
 ## Contributing

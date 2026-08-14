@@ -32,13 +32,18 @@ missing.
 - [x] Wi-Fi with setup-AP fallback and captive portal
 - [x] Configuration web service and multi-page UI ([docs/WEB.md](WEB.md))
 - [x] MQTT: lock state, tap events, commands, Home Assistant discovery
-- [ ] **Verified building and booting on real hardware** — needs an ESP-IDF
-      install; nothing in this repo has been compiled for the ESP32 yet
+- [x] Serial debug console for bench bring-up
+- [x] **Verified building** — CI compiles for esp32 and esp32s3 on ESP-IDF 5.4
+      and 5.5; the app is ~1.19 MB, 39% free in a 1.875 MB partition
+- [ ] **Verified booting on real hardware** — not yet run on a board. See
+      [FIRST-TEST.md](FIRST-TEST.md).
 
 The configuration logic is covered by a host-side test (65 checks over
-validation, JSON patching, MQTT rules, secret masking and persistence), and the
-UI has been driven end to end against a stand-in for the device API. Neither is
-a substitute for a firmware build.
+validation, JSON patching, MQTT rules, secret masking and persistence),
+`tools/check_consistency.py` catches Kconfig and component-dependency mistakes
+without a compiler, and the UI has been driven end to end against a stand-in
+for the device API. The firmware itself now compiles in CI. None of that is a
+substitute for a board.
 
 ## Milestone 2 — a real NFC frontend
 
