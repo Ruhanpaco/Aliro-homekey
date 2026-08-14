@@ -30,13 +30,23 @@ pip install esptool
 
 ## 2. Flash
 
+**ESP32:**
+
 ```bash
-esptool.py --chip esp32 --port /dev/tty.usbserial-0001 --baud 460800 write_flash 0x1000 bootloader.bin 0x8000 partition-table.bin 0x10000 aliro_homekey.bin
+esptool.py --chip esp32 --port /dev/tty.usbserial-0001 --baud 460800 write_flash 0x1000 bootloader.bin 0x8000 partition-table.bin 0x15000 ota_data_initial.bin 0x20000 aliro_homekey.bin
 ```
 
-The offsets differ by chip — the bootloader sits at `0x0` on the ESP32-S3, not
-`0x1000`. `flasher_args.json` in the artifact carries the exact offsets the
-build used; trust it over this snippet if they disagree.
+**ESP32-S3** — the bootloader sits at `0x0`, not `0x1000`:
+
+```bash
+esptool.py --chip esp32s3 --port /dev/tty.usbmodem101 --baud 460800 write_flash 0x0 bootloader.bin 0x8000 partition-table.bin 0x15000 ota_data_initial.bin 0x20000 aliro_homekey.bin
+```
+
+Two offsets here are not the usual ones. The app is at **`0x20000`**, not
+`0x10000`, because `partitions.csv` puts a 48 KB NVS, the OTA data and the PHY
+data ahead of `ota_0`. And `ota_data_initial.bin` has to be written, or the OTA
+data partition is left blank. `flasher_args.json` in the artifact is what the
+build actually used — trust it over any snippet, including this one.
 
 Find your port with `ls /dev/tty.usb*` on macOS or `ls /dev/ttyUSB*` on Linux.
 

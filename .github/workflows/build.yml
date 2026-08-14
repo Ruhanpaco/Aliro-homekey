@@ -41,6 +41,7 @@ jobs:
           mkdir -p firmware
           cp build/aliro_homekey.bin build/bootloader/bootloader.bin \
              build/partition_table/partition-table.bin \
+             build/ota_data_initial.bin \
              build/flasher_args.json firmware/
           cp build/flash_args firmware/ 2>/dev/null || true
 
