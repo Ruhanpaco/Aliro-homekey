@@ -100,6 +100,23 @@ typedef struct {
     bool publish_taps;   /*!< Publish an event for every tap, granted or not */
 } mqtt_config_t;
 
+/**
+ * @brief Web UI access control.
+ *
+ * HTTP Basic, as HomeKey-ESP32 does it: the browser owns the prompt, so it
+ * costs no JavaScript and works inside a captive-portal window, which a
+ * login page and a cookie do not.
+ *
+ * Off by default, because a reader that locks its owner out of its own
+ * configuration on first boot is worse than one on a trusted network. Turning
+ * it on requires a real password -- see app_config_validate().
+ */
+typedef struct {
+    bool auth_enabled;
+    char username[33];
+    char password[65];
+} web_config_t;
+
 typedef struct {
     char device_name[32];
     char group_id_hex[33]; /*!< 32 hex chars, the 16-byte reader group identifier */
@@ -107,6 +124,7 @@ typedef struct {
     lock_config_t lock;
     net_config_t net;
     mqtt_config_t mqtt;
+    web_config_t web;
 } app_config_t;
 
 /**

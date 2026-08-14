@@ -136,6 +136,12 @@ void app_config_defaults(app_config_t *out)
     out->mqtt.ha_discovery = true;
     snprintf(out->mqtt.client_id, sizeof(out->mqtt.client_id), "%s", CONFIG_ALIRO_DEFAULT_DEVICE_NAME);
     snprintf(out->mqtt.base_topic, sizeof(out->mqtt.base_topic), "aliro/%s", CONFIG_ALIRO_DEFAULT_DEVICE_NAME);
+
+    /* Off, with a username but no password. A reader that demanded a password
+     * nobody had been given on first boot would be a brick. */
+    out->web.auth_enabled = false;
+    snprintf(out->web.username, sizeof(out->web.username), "admin");
+    out->web.password[0] = '\0';
 }
 
 void app_config_mqtt_topic(const mqtt_config_t *cfg, const char *suffix, char *out, size_t out_len)
@@ -301,6 +307,23 @@ esp_err_t app_config_validate(const app_config_t *cfg, char *err_msg, size_t err
         }
     }
 
+    if (cfg->web.auth_enabled) {
+        if (cfg->web.username[0] == '\0') {
+            FAIL("web login is enabled but no username is set");
+        }
+        /*
+         * Refuse to switch protection on and leave it useless. Someone who
+         * enables a login and is never told the password is weak ends up
+         * believing the reader is protected when 'admin/password' opens it.
+         */
+        if (strlen(cfg->web.password) < 8) {
+            FAIL("web password must be at least 8 characters");
+        }
+        if (strcasecmp(cfg->web.password, "password") == 0 || strcasecmp(cfg->web.password, "12345678") == 0) {
+            FAIL("web password is one of the first anyone would try");
+        }
+    }
+
     return ESP_OK;
 }
 
@@ -363,6 +386,12 @@ char *app_config_to_json(const app_config_t *cfg, bool include_secrets)
     cJSON_AddBoolToObject(mqtt, "publish_taps", cfg->mqtt.publish_taps);
     cJSON_AddStringToObject(mqtt, "password", include_secrets ? cfg->mqtt.password : "");
     cJSON_AddBoolToObject(mqtt, "password_set", cfg->mqtt.password[0] != '\0');
+
+    cJSON *web = cJSON_AddObjectToObject(root, "web");
+    cJSON_AddBoolToObject(web, "auth_enabled", cfg->web.auth_enabled);
+    cJSON_AddStringToObject(web, "username", cfg->web.username);
+    cJSON_AddStringToObject(web, "password", include_secrets ? cfg->web.password : "");
+    cJSON_AddBoolToObject(web, "password_set", cfg->web.password[0] != '\0');
 
     char *out = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
@@ -483,6 +512,15 @@ esp_err_t app_config_from_json(const char *json, app_config_t *cfg, char *err_ms
         json_get_string(mqtt, "client_id", cfg->mqtt.client_id, sizeof(cfg->mqtt.client_id), false);
         json_get_string(mqtt, "base_topic", cfg->mqtt.base_topic, sizeof(cfg->mqtt.base_topic), false);
         json_get_string(mqtt, "password", cfg->mqtt.password, sizeof(cfg->mqtt.password), true);
+    }
+
+    const cJSON *web = cJSON_GetObjectItemCaseSensitive(root, "web");
+    if (cJSON_IsObject(web)) {
+        json_get_bool(web, "auth_enabled", &cfg->web.auth_enabled);
+        json_get_string(web, "username", cfg->web.username, sizeof(cfg->web.username), false);
+        /* Empty keeps the stored one, so the UI can round-trip a masked form
+         * without wiping the password. */
+        json_get_string(web, "password", cfg->web.password, sizeof(cfg->web.password), true);
         int port = cfg->mqtt.port;
         json_get_int(mqtt, "port", &port);
         cfg->mqtt.port = (port < 0 || port > 65535) ? 0 : (uint16_t)port;
