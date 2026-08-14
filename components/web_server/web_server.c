@@ -879,52 +879,116 @@ static esp_err_t handle_ota_upload(httpd_req_t *req)
 
 static esp_err_t handle_captive_portal_redirect(httpd_req_t *req)
 {
+    /* An absolute URL, not "/": some connectivity checkers treat a relative
+     * redirect as "the network works" and never open the portal. */
+    net_status_t net;
+    net_manager_get_status(&net);
+
+    char location[32];
+    snprintf(location, sizeof(location), "http://%s/", net.ip[0] ? net.ip : "192.168.4.1");
+
     httpd_resp_set_status(req, "302 Found");
-    httpd_resp_set_hdr(req, "Location", "/");
+    httpd_resp_set_hdr(req, "Location", location);
     httpd_resp_send(req, NULL, 0);
     return ESP_OK;
 }
 
+#define WIFI_SCAN_MAX 24
+
 static esp_err_t handle_wifi_scan(httpd_req_t *req)
 {
-    /* Simple WiFi scan implementation */
-    wifi_scan_config_t scan_config = {
-        .ssid = NULL,
-        .bssid = NULL,
-        .channel = 0,
-        .show_hidden = false,
-        .scan_type = WIFI_SCAN_TYPE_ACTIVE,
-        .scan_time = {.active = {.min = 100, .max = 300}, .passive = 0},
-    };
-
-    esp_err_t err = esp_wifi_scan_start(&scan_config, true);
-    if (err != ESP_OK) {
+    net_scan_result_t *found = calloc(WIFI_SCAN_MAX, sizeof(*found));
+    if (!found) {
         httpd_resp_set_status(req, "500 Internal Server Error");
-        return send_json_response(req, false, NULL, "WiFi scan failed", NULL);
+        return send_json_response(req, false, NULL, "out of memory", NULL);
     }
 
-    uint16_t ap_count = 0;
-    esp_wifi_scan_get_ap_num(&ap_count);
-    if (ap_count > 20) {
-        ap_count = 20; /* Limit to 20 results */
+    size_t count = 0;
+    const esp_err_t err = net_manager_scan(found, WIFI_SCAN_MAX, &count);
+    if (err != ESP_OK) {
+        free(found);
+        httpd_resp_set_status(req, "500 Internal Server Error");
+        return send_json_response(req, false, NULL, esp_err_to_name(err), NULL);
     }
-
-    wifi_ap_record_t ap_records[ap_count];
-    esp_wifi_scan_get_ap_records(&ap_count, ap_records);
 
     cJSON *data = cJSON_CreateObject();
     cJSON *networks = cJSON_AddArrayToObject(data, "networks");
-
-    for (uint16_t i = 0; i < ap_count; i++) {
+    for (size_t i = 0; i < count; i++) {
         cJSON *net = cJSON_CreateObject();
-        cJSON_AddStringToObject(net, "ssid", (const char *)ap_records[i].ssid);
-        cJSON_AddNumberToObject(net, "rssi", ap_records[i].rssi);
-        cJSON_AddNumberToObject(net, "channel", ap_records[i].primary);
+        cJSON_AddStringToObject(net, "ssid", found[i].ssid);
+        cJSON_AddNumberToObject(net, "rssi", found[i].rssi);
+        cJSON_AddNumberToObject(net, "channel", found[i].channel);
+        cJSON_AddBoolToObject(net, "open", found[i].open);
         cJSON_AddItemToArray(networks, net);
     }
+    cJSON_AddNumberToObject(data, "count", count);
 
-    cJSON_AddNumberToObject(data, "count", ap_count);
-    return send_json_response(req, true, "WiFi scan results", NULL, data);
+    free(found);
+    return send_json_response(req, true, "Networks in range", NULL, data);
+}
+
+/*
+ * Join a network from the setup portal. The access point stays up throughout,
+ * so this can answer with either the new address or the reason it failed --
+ * the alternative is saving a possibly-wrong password, rebooting, and leaving
+ * the user to work out from a dark board that the passphrase had a typo.
+ */
+static esp_err_t handle_wifi_connect(httpd_req_t *req)
+{
+    char *body = read_body(req);
+    if (!body) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        return send_json_response(req, false, NULL, "could not read the request", NULL);
+    }
+
+    cJSON *root = cJSON_Parse(body);
+    free(body);
+    if (!root) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        return send_json_response(req, false, NULL, "malformed JSON", NULL);
+    }
+
+    const cJSON *ssid_item = cJSON_GetObjectItemCaseSensitive(root, "ssid");
+    const cJSON *pass_item = cJSON_GetObjectItemCaseSensitive(root, "password");
+    if (!cJSON_IsString(ssid_item) || ssid_item->valuestring[0] == '\0') {
+        cJSON_Delete(root);
+        httpd_resp_set_status(req, "400 Bad Request");
+        return send_json_response(req, false, NULL, "an SSID is required", NULL);
+    }
+
+    char ssid[33];
+    char password[65];
+    strlcpy(ssid, ssid_item->valuestring, sizeof(ssid));
+    strlcpy(password, cJSON_IsString(pass_item) ? pass_item->valuestring : "", sizeof(password));
+    cJSON_Delete(root);
+
+    char ip[16] = {0};
+    const esp_err_t err = net_manager_join(ssid, password, 20000, ip, sizeof(ip));
+    if (err != ESP_OK) {
+        httpd_resp_set_status(req, "502 Bad Gateway");
+        return send_json_response(req, false, NULL,
+                                  err == ESP_ERR_TIMEOUT ? "no address from that network -- is it in range?"
+                                                         : "the network refused those credentials",
+                                  NULL);
+    }
+
+    /* Only now, with a working connection proven, are the credentials worth
+     * keeping. Anything else stores a password that has never worked. */
+    app_config_t cfg = *app_config_get();
+    strlcpy(cfg.net.ssid, ssid, sizeof(cfg.net.ssid));
+    strlcpy(cfg.net.password, password, sizeof(cfg.net.password));
+
+    char reason[128] = {0};
+    const esp_err_t save_err = app_config_save(&cfg, reason, sizeof(reason));
+
+    cJSON *data = cJSON_CreateObject();
+    cJSON_AddStringToObject(data, "ssid", ssid);
+    cJSON_AddStringToObject(data, "ip", ip);
+    cJSON_AddBoolToObject(data, "saved", save_err == ESP_OK);
+    if (save_err != ESP_OK) {
+        ESP_LOGE(k_tag, "joined '%s' but could not store the credentials: %s", ssid, reason);
+    }
+    return send_json_response(req, true, "Connected", NULL, data);
 }
 
 /* --- lifecycle ----------------------------------------------------------- */
@@ -939,7 +1003,7 @@ esp_err_t web_server_start(const web_server_hooks_t *hooks)
 
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.uri_match_fn = httpd_uri_match_wildcard;
-    cfg.max_uri_handlers = 24;  /* Increased for new handlers */
+    cfg.max_uri_handlers = 32; /* API, WebSocket, OTA, setup portal and OS connectivity probes */
     cfg.stack_size = 6144;
     cfg.lru_purge_enable = true;
 
@@ -1017,11 +1081,25 @@ esp_err_t web_server_start(const web_server_hooks_t *hooks)
         /* OTA endpoint */
         {.uri = "/api/ota", .method = HTTP_POST, .handler = handle_ota_upload, .is_websocket = false},
 
-        /* WiFi scanning (for captive portal) */
+        /* Setup portal: list networks in range, then join one */
         {.uri = "/api/wifi_scan", .method = HTTP_GET, .handler = handle_wifi_scan, .is_websocket = false},
+        {.uri = "/api/wifi_connect", .method = HTTP_POST, .handler = handle_wifi_connect, .is_websocket = false},
 
-        /* Captive portal redirect */
+        /*
+         * Connectivity probes. Every OS fetches a known URL after joining a
+         * network and decides from the answer whether to open its captive
+         * portal window; a redirect is the answer that opens it. Serving the
+         * catch-all UI instead technically works, but sends 40 kB to a probe
+         * that only wanted a status line.
+         */
         {.uri = "/generate_204", .method = HTTP_GET, .handler = handle_captive_portal_redirect, .is_websocket = false},
+        {.uri = "/gen_204", .method = HTTP_GET, .handler = handle_captive_portal_redirect, .is_websocket = false},
+        {.uri = "/hotspot-detect.html", .method = HTTP_GET, .handler = handle_captive_portal_redirect, .is_websocket = false},
+        {.uri = "/library/test/success.html", .method = HTTP_GET, .handler = handle_captive_portal_redirect, .is_websocket = false},
+        {.uri = "/ncsi.txt", .method = HTTP_GET, .handler = handle_captive_portal_redirect, .is_websocket = false},
+        {.uri = "/connecttest.txt", .method = HTTP_GET, .handler = handle_captive_portal_redirect, .is_websocket = false},
+        {.uri = "/canonical.html", .method = HTTP_GET, .handler = handle_captive_portal_redirect, .is_websocket = false},
+        {.uri = "/success.txt", .method = HTTP_GET, .handler = handle_captive_portal_redirect, .is_websocket = false},
         {.uri = "/redirect", .method = HTTP_GET, .handler = handle_captive_portal_redirect, .is_websocket = false},
 
         /* Catch-all last: any other GET returns the UI */

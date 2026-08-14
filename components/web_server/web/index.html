@@ -88,7 +88,8 @@ body{background:var(--color-base-100);color:var(--color-base-content);
 .hidden{display:none !important}
 .flex{display:flex}.grid{display:grid}.inline-grid{display:inline-grid}
 .flex-col{flex-direction:column}.flex-1{flex:1 1 0%}.flex-wrap{flex-wrap:wrap}
-.items-center{align-items:center}.items-start{align-items:flex-start}
+.items-center{align-items:center}.items-start{align-items:flex-start}.items-end{align-items:flex-end}
+.grow{flex-grow:1}.min-w-48{min-width:12rem}
 .justify-between{justify-content:space-between}.justify-center{justify-content:center}
 .gap-1{gap:.25rem}.gap-2{gap:.5rem}.gap-3{gap:.75rem}.gap-4{gap:1rem}
 .grid-cols-1{grid-template-columns:repeat(1,minmax(0,1fr))}
@@ -214,6 +215,10 @@ body{background:var(--color-base-100);color:var(--color-base-content);
   border-radius:var(--radius-box);background:var(--color-base-300);font-size:.875rem}
 .alert-error{background:var(--color-error);color:var(--color-error-content)}
 .alert-warning{background:var(--color-warning);color:var(--color-warning-content)}
+.alert-success{background:var(--color-success);color:var(--color-success-content)}
+/* An alert that carries a heading and a line of detail stacks instead. */
+.alert>div{display:block}
+.link{color:inherit;text-decoration:underline}
 
 .toast{position:fixed;bottom:1rem;right:1rem;z-index:60;display:flex;
   flex-direction:column;gap:.5rem;max-width:min(92vw,26rem)}
@@ -714,11 +719,41 @@ main{padding:0 1.5rem 1.5rem;height:100%;overflow-y:auto;background:var(--color-
           </div>
 
           <div class="card mt-4">
+            <div class="card-body space-y-4">
+              <div>
+                <h3 class="font-semibold">Connect to Wi-Fi</h3>
+                <p class="text-sm text-muted">Joins the network straight away and tells you the
+                  address it landed on. The setup access point stays up while it tries, so a
+                  wrong password is reported rather than discovered after a reboot.</p>
+              </div>
+              <div class="flex flex-wrap gap-2 items-end">
+                <div class="form-control grow min-w-48">
+                  <label class="label" for="scan_list"><span class="label-text text-sm">Networks in range</span></label>
+                  <select id="scan_list" class="select select-sm select-bordered w-full">
+                    <option value="">— scan to see what is nearby —</option>
+                  </select>
+                </div>
+                <button type="button" id="btn_scan" class="btn btn-sm">Scan</button>
+              </div>
+              <div class="form-control" id="join_pass_row">
+                <label class="label" for="join_password"><span class="label-text text-sm">Password</span></label>
+                <input id="join_password" type="password" maxlength="64" autocomplete="off"
+                       class="input input-sm input-bordered w-full">
+              </div>
+              <div class="flex gap-3 items-center flex-wrap">
+                <button type="button" id="btn_join" class="btn btn-sm btn-primary">Connect now</button>
+                <span id="join_status" class="text-sm text-muted"></span>
+              </div>
+              <div id="join_result" class="alert hidden"></div>
+            </div>
+          </div>
+
+          <div class="card mt-4">
             <div class="card-body space-y-6">
               <div>
                 <h3 class="font-semibold">Network</h3>
-                <p class="text-sm text-muted">Without credentials, or after five failed joins,
-                  the reader starts its own setup access point.</p>
+                <p class="text-sm text-muted">Stored credentials, applied on the next restart.
+                  Connecting above fills these in for you.</p>
               </div>
               <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div class="form-control">
@@ -903,8 +938,11 @@ function toast(message, kind) {
 async function api(path, options) {
   const res = await fetch(path, options);
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.error || res.statusText);
-  return body;
+  if (!res.ok || body.success === false) throw new Error(body.error || res.statusText);
+  /* Handlers wrap every payload as {success, message, data}. Callers want the
+     payload, not the envelope -- unwrapping here rather than at each call site
+     keeps the two sides from drifting apart again. */
+  return body && typeof body === "object" && "data" in body ? body.data : body;
 }
 
 /* --- pin pickers ------------------------------------------------------- */
@@ -1136,6 +1174,91 @@ $("reset").addEventListener("click", async () => {
     renderAliro();
   } catch (err) { toast(err.message, "error"); }
 });
+
+/* --- Wi-Fi setup ------------------------------------------------------- */
+
+/* Signal bars beat a raw dBm figure for picking a network out of a list. */
+function signalLabel(rssi) {
+  if (rssi >= -55) return "▂▄▆█";
+  if (rssi >= -67) return "▂▄▆_";
+  if (rssi >= -78) return "▂▄__";
+  return "▂___";
+}
+
+$("btn_scan").onclick = async () => {
+  const btn = $("btn_scan"), list = $("scan_list");
+  btn.disabled = true;
+  btn.textContent = "Scanning…";
+  try {
+    const { networks } = await api("/api/wifi_scan");
+    list.replaceChildren();
+    if (!networks.length) {
+      list.append(new Option("— nothing in range —", ""));
+    } else {
+      list.append(new Option("— pick a network —", ""));
+      for (const net of networks) {
+        const opt = new Option(`${signalLabel(net.rssi)}  ${net.ssid}${net.open ? "" : " 🔒"}`, net.ssid);
+        opt.dataset.open = net.open ? "1" : "";
+        list.append(opt);
+      }
+    }
+    toast(`${networks.length} network(s) found`);
+  } catch (err) {
+    toast("Scan failed: " + err.message, "error");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Scan";
+  }
+};
+
+/* An open network has nothing to type, so stop asking for it. */
+$("scan_list").onchange = () => {
+  const opt = $("scan_list").selectedOptions[0];
+  $("join_pass_row").classList.toggle("hidden", Boolean(opt && opt.dataset.open));
+};
+
+$("btn_join").onclick = async () => {
+  const ssid = $("scan_list").value || $("ssid").value.trim();
+  if (!ssid) {
+    toast("Pick a network first, or type its name in the Network section", "error");
+    return;
+  }
+
+  const btn = $("btn_join"), result = $("join_result");
+  btn.disabled = true;
+  result.classList.add("hidden");
+  $("join_status").textContent = `Joining ${ssid}… this takes a few seconds.`;
+
+  try {
+    const data = await api("/api/wifi_connect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ssid, password: $("join_password").value }),
+    });
+
+    /* Mirror what worked into the stored-config fields, so saving the rest of
+       the form does not overwrite the credentials that just succeeded. */
+    $("ssid").value = data.ssid;
+    $("password").value = "";
+
+    result.className = "alert alert-success";
+    result.innerHTML =
+      `<div><div class="font-semibold">Connected to ${data.ssid}</div>` +
+      `<div class="text-sm">This reader is now at <a class="link" href="http://${data.ip}/">http://${data.ip}/</a> ` +
+      `on your network. Leave the setup access point and open that address.</div>` +
+      (data.saved ? "" : `<div class="text-sm">Warning: the credentials could not be stored, so this will not survive a restart.</div>`);
+    result.classList.remove("hidden");
+    $("join_status").textContent = "";
+    refreshStatus();
+  } catch (err) {
+    result.className = "alert alert-error";
+    result.textContent = err.message;
+    result.classList.remove("hidden");
+    $("join_status").textContent = "";
+  } finally {
+    btn.disabled = false;
+  }
+};
 
 (async function init() {
   route();

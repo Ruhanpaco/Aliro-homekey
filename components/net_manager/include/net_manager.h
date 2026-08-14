@@ -46,6 +46,45 @@ void net_manager_get_status(net_status_t *out);
 /** @brief True once an IP address is assigned in either mode. */
 bool net_manager_is_up(void);
 
+typedef struct {
+    char ssid[33];
+    int8_t rssi;
+    uint8_t channel;
+    bool open; /*!< No passphrase required */
+} net_scan_result_t;
+
+/**
+ * @brief Scan for nearby networks, strongest first.
+ *
+ * Blocks for a second or two. Duplicate SSIDs are collapsed to the strongest
+ * BSSID, because a mesh network appearing five times is noise to someone
+ * picking their home network out of a list.
+ *
+ * @param[out] out       Destination array
+ * @param[in]  max       Capacity of @p out
+ * @param[out] out_count Networks written
+ */
+esp_err_t net_manager_scan(net_scan_result_t *out, size_t max, size_t *out_count);
+
+/**
+ * @brief Join a network now, without rebooting.
+ *
+ * The setup access point stays up for the duration, so the browser that asked
+ * for this keeps its connection and can be told the new address. On success
+ * the credentials become the running configuration; persisting them is the
+ * caller's job.
+ *
+ * @param[in]  ssid       Network to join
+ * @param[in]  password   Passphrase, or "" for an open network
+ * @param[in]  timeout_ms How long to wait for an IP address
+ * @param[out] out_ip     Assigned address, may be NULL
+ * @param[in]  out_ip_len Size of @p out_ip
+ * @return ESP_OK on success, ESP_ERR_TIMEOUT if no address arrived, or
+ *         ESP_ERR_WIFI_NOT_CONNECT if the access point rejected us.
+ */
+esp_err_t net_manager_join(const char *ssid, const char *password, uint32_t timeout_ms, char *out_ip,
+                           size_t out_ip_len);
+
 #ifdef __cplusplus
 }
 #endif
