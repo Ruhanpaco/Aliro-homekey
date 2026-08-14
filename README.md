@@ -7,10 +7,11 @@ can be an iPhone, a Pixel or a Galaxy, because the reader speaks
 [Aliro](https://csa-iot.org/all-solutions/aliro/), the cross-ecosystem standard
 for mobile access credentials, rather than any one vendor's protocol.
 
-> **Status: v0.1 — it builds and boots, it does not read cards yet.** The
+> **Status: v0.1 — it compiles; it has never been run on a board.** The
 > project structure, the Aliro transaction plumbing, the configuration web
 > service, MQTT and a serial debug console are in place, and CI builds them
-> for ESP32 and ESP32-S3 on ESP-IDF 5.4 and 5.5. There is still **no NFC chip
+> for ESP32 and ESP32-S3 on ESP-IDF 5.4 and 5.5. Nobody has flashed it yet, so
+> "it boots" is an expectation, not a result. There is also **no NFC chip
 > driver**, so no card is ever detected and no Aliro transaction ever runs.
 > See [docs/FIRST-TEST.md](docs/FIRST-TEST.md) to put it on a board, and
 > [docs/ROADMAP.md](docs/ROADMAP.md) for what is missing.
