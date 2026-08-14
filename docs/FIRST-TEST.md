@@ -18,17 +18,33 @@ Flash them with a browser-based flasher, or with `esptool` as below.
 - Nothing wired to the lock GPIO yet. The default is GPIO 2, which is the
   on-board LED on most DevKitCs — good enough to watch an unlock.
 
-## 1. Get the firmware
+## 1. Flash it — the easy way
 
-From the [Actions tab](https://github.com/Ruhanpaco/Aliro-homekey/actions),
-open the newest green run on `main` and download the `firmware-esp32`
-artifact (or `firmware-esp32s3`). Unzip it.
+Each [release](https://github.com/Ruhanpaco/Aliro-homekey/releases) attaches a
+**single merged image** that is flashed at offset `0x0`:
+
+- `aliro-homekey-<version>-esp32-MERGED.bin`
+- `aliro-homekey-<version>-esp32s3-MERGED.bin`
+
+One file, one offset, nothing to get wrong. Use any browser flasher that takes
+a raw image — [Adafruit WebSerial ESPTool](https://adafruit.github.io/Adafruit_WebSerial_ESPTool/)
+works well:
+
+1. **Connect**, and check the chip it reports matches the image you picked.
+2. **Erase** on a first install, so NVS starts clean.
+3. Put the merged `.bin` in the **first slot at offset `0`**, leave the rest
+   empty, and **Program**.
+
+Or with `esptool`:
 
 ```bash
-pip install esptool
+esptool.py --chip esp32 --port /dev/tty.usbserial-0001 --baud 460800 write_flash 0x0 aliro-homekey-v0.1.0-esp32-MERGED.bin
 ```
 
-## 2. Flash
+## 2. Flash it — the separate images
+
+The `.zip` asset holds the four images the build produces, for reflashing just
+the app during development, which is much faster than a full write.
 
 **ESP32:**
 
@@ -42,21 +58,17 @@ esptool.py --chip esp32 --port /dev/tty.usbserial-0001 --baud 460800 write_flash
 esptool.py --chip esp32s3 --port /dev/tty.usbmodem101 --baud 460800 write_flash 0x0 bootloader.bin 0x8000 partition-table.bin 0x15000 ota_data_initial.bin 0x20000 aliro_homekey.bin
 ```
 
-Two offsets here are not the usual ones. The app is at **`0x20000`**, not
+Two of those offsets are not the usual ones. The app is at **`0x20000`**, not
 `0x10000`, because `partitions.csv` puts a 48 KB NVS, the OTA data and the PHY
 data ahead of `ota_0`. And `ota_data_initial.bin` has to be written, or the OTA
-data partition is left blank. `flasher_args.json` in the artifact is what the
-build actually used — trust it over any snippet, including this one.
+data partition is left blank. `flasher_args.json` in the zip is what the build
+actually used — trust it over any snippet, including this one.
 
 Find your port with `ls /dev/tty.usb*` on macOS or `ls /dev/ttyUSB*` on Linux.
 
 ## 3. Watch it boot
 
-```bash
-esptool.py --port /dev/tty.usbserial-0001 --baud 115200 read_flash_status
-```
-
-For the log, any serial terminal at **115200 baud** works — `screen`, `minicom`,
+Reset the board and open a serial terminal at **115200 baud** — `screen`, `minicom`,
 `picocom`, or the Arduino IDE's monitor:
 
 ```bash
