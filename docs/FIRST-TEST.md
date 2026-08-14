@@ -21,12 +21,14 @@ Flash them with a browser-based flasher, or with `esptool` as below.
 ## 1. Flash it — the easy way
 
 Each [release](https://github.com/Ruhanpaco/Aliro-homekey/releases) attaches a
-**single merged image** that is flashed at offset `0x0`:
+**factory image** per target, flashed at offset `0x0`:
 
-- `aliro-homekey-<version>-esp32-MERGED.bin`
-- `aliro-homekey-<version>-esp32s3-MERGED.bin`
+- `esp32.firmware.factory.bin`
+- `esp32s3.firmware.factory.bin`
 
-One file, one offset, nothing to get wrong. Use any browser flasher that takes
+One file, one offset, nothing to get wrong. It is padded to the full 4 MB, so
+flashing it overwrites a previous install completely rather than leaving old
+NVS behind. Use any browser flasher that takes
 a raw image — [Adafruit WebSerial ESPTool](https://adafruit.github.io/Adafruit_WebSerial_ESPTool/)
 works well:
 
@@ -38,13 +40,20 @@ works well:
 Or with `esptool`:
 
 ```bash
-esptool.py --chip esp32 --port /dev/tty.usbserial-0001 --baud 460800 write_flash 0x0 aliro-homekey-v0.1.0-esp32-MERGED.bin
+esptool.py --chip esp32 --port /dev/tty.usbserial-0001 --baud 460800 write_flash 0x0 esp32.firmware.factory.bin
 ```
 
-## 2. Flash it — the separate images
+## 2. Flash it — the app alone
 
-The `.zip` asset holds the four images the build produces, for reflashing just
-the app during development, which is much faster than a full write.
+`<target>.firmware.bin` is just the application, for reflashing during
+development without rewriting the bootloader and partition table:
+
+```bash
+esptool.py --chip esp32 --port /dev/tty.usbserial-0001 --baud 460800 write_flash 0x20000 esp32.firmware.bin
+```
+
+The CI artifact (Actions tab) additionally carries the individual images if you
+want to write them one by one:
 
 **ESP32:**
 
