@@ -166,6 +166,7 @@ static void start_setup_ap(void)
     esp_netif_ip_info_t ip_info = {0};
     esp_netif_get_ip_info(s_net.ap_netif, &ip_info);
     snprintf(s_net.status.ip, sizeof(s_net.status.ip), IPSTR, IP2STR(&ip_info.ip));
+    snprintf(s_net.status.ap_ip, sizeof(s_net.status.ap_ip), IPSTR, IP2STR(&ip_info.ip));
     snprintf(s_net.status.ssid, sizeof(s_net.status.ssid), "%s", ssid);
     s_net.status.mode = NET_MODE_SETUP_AP;
     s_net.status.connected = true;

@@ -27,6 +27,11 @@ typedef struct {
     bool connected;
     char ssid[33];
     char ip[16];
+    /* The setup AP's own address, while it is running. Once a join succeeds
+     * `ip` becomes the address on the joined network, but clients are still
+     * attached to the access point until they leave it -- anything answering
+     * those clients has to point at this one. */
+    char ap_ip[16];
     int8_t rssi;
 } net_status_t;
 

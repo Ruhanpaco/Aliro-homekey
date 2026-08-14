@@ -880,12 +880,16 @@ static esp_err_t handle_ota_upload(httpd_req_t *req)
 static esp_err_t handle_captive_portal_redirect(httpd_req_t *req)
 {
     /* An absolute URL, not "/": some connectivity checkers treat a relative
-     * redirect as "the network works" and never open the portal. */
+     * redirect as "the network works" and never open the portal.
+     *
+     * It has to be the access point's address specifically. A probe only
+     * arrives from a client attached to the AP, and after a successful join
+     * the station address is on a network that client cannot reach yet. */
     net_status_t net;
     net_manager_get_status(&net);
 
     char location[32];
-    snprintf(location, sizeof(location), "http://%s/", net.ip[0] ? net.ip : "192.168.4.1");
+    snprintf(location, sizeof(location), "http://%s/", net.ap_ip[0] ? net.ap_ip : "192.168.4.1");
 
     httpd_resp_set_status(req, "302 Found");
     httpd_resp_set_hdr(req, "Location", location);
