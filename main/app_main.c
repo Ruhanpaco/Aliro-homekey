@@ -18,6 +18,7 @@
 #include "serial_console.h"
 #include "web_server.h"
 
+#include <esp_check.h>
 #include <esp_err.h>
 #include <esp_log.h>
 #include <nvs_flash.h>
@@ -50,7 +51,7 @@ static esp_err_t init_nvs(void)
     return err;
 }
 
-static void start_reader(const app_config_t *cfg)
+static esp_err_t start_reader(const app_config_t *cfg)
 {
     s_transport = nfc_transport_from_config(&cfg->nfc);
 
@@ -63,11 +64,13 @@ static void start_reader(const app_config_t *cfg)
         .user_ctx = NULL,
         .fast_transaction_slots = CONFIG_ALIRO_READER_FAST_TRANSACTION_SLOTS,
     };
-    ESP_ERROR_CHECK(app_config_parse_group_id(cfg->group_id_hex, reader_cfg.group_identifier,
-                                              sizeof(reader_cfg.group_identifier)));
+    ESP_RETURN_ON_ERROR(app_config_parse_group_id(cfg->group_id_hex, reader_cfg.group_identifier,
+                                                  sizeof(reader_cfg.group_identifier)),
+                        k_tag, "reader group identifier '%s' is not valid hex", cfg->group_id_hex);
 
-    ESP_ERROR_CHECK(aliro_reader_start(&reader_cfg));
+    ESP_RETURN_ON_ERROR(aliro_reader_start(&reader_cfg), k_tag, "reader failed to start");
     ESP_ERROR_CHECK_WITHOUT_ABORT(aliro_reader_log_identity());
+    return ESP_OK;
 }
 
 void app_main(void)
@@ -82,22 +85,29 @@ void app_main(void)
     const app_config_t *cfg = app_config_get();
     ESP_LOGI(k_tag, "device '%s'", cfg->device_name);
 
-    ESP_ERROR_CHECK(access_control_init(&cfg->lock));
+    /*
+     * Past this point nothing aborts the boot. A reader that cannot read is
+     * useless, but a reader in a boot loop cannot be reconfigured to fix
+     * itself -- and the serial console and web UI below are the only way to
+     * fix anything. Every failure here is logged loudly and reported through
+     * `status`, and the device still comes up.
+     */
+    ESP_ERROR_CHECK_WITHOUT_ABORT(access_control_init(&cfg->lock));
 
     /* Before the credential store, because deriving a key slot is an SDK call
      * and the SDK reports "cannot be parsed" when it is simply not up yet. */
-    ESP_ERROR_CHECK(aliro_reader_sdk_init(CONFIG_ALIRO_READER_FAST_TRANSACTION_SLOTS));
-
-    /* Not fatal. A credential that will not parse means nobody can open this
-     * door, which is bad -- but a reader stuck in a boot loop cannot even be
-     * reconfigured to fix it, which is worse. */
-    if (access_control_add_credential(credential_pubkey_pem_start,
-                                      (size_t)(credential_pubkey_pem_end - credential_pubkey_pem_start),
-                                      "dev-credential") != ESP_OK) {
-        ESP_LOGE(k_tag, "development credential rejected; the reader will refuse every tap");
+    if (aliro_reader_sdk_init(CONFIG_ALIRO_READER_FAST_TRANSACTION_SLOTS) != ESP_OK) {
+        ESP_LOGE(k_tag, "Aliro SDK did not initialize; the reader is disabled this boot");
+    } else {
+        if (access_control_add_credential(credential_pubkey_pem_start,
+                                          (size_t)(credential_pubkey_pem_end - credential_pubkey_pem_start),
+                                          "dev-credential") != ESP_OK) {
+            ESP_LOGE(k_tag, "development credential rejected; the reader will refuse every tap");
+        }
+        if (start_reader(cfg) != ESP_OK) {
+            ESP_LOGE(k_tag, "reader not running; configuration UI and console are still available");
+        }
     }
-
-    start_reader(cfg);
 
     /* Networking last: a reader must keep working on a door whose Wi-Fi is
      * down, so nothing above this line depends on it. */
