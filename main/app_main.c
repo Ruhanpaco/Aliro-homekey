@@ -298,14 +298,36 @@ void app_main(void)
     }
 
     /*
-     * Matter before the network, and only because of who owns the Wi-Fi
-     * driver: chip's ESP32 platform layer initializes esp_netif and esp_wifi
-     * from inside InitChipStack, and doing that twice fails. net_manager
-     * detects a driver that is already up and joins it, which is why this
-     * order works and the other one does not. In a build without Matter this
-     * is a no-op and nothing changes.
+     * A board with no Wi-Fi credentials has exactly one job: raise its setup
+     * access point and serve the page that takes credentials. Matter is not
+     * merely useless there, it is what makes the job impossible -- on hardware
+     * the HTTP server could not even start:
+     *
+     *     E aliro/web: httpd_start failed: ESP_ERR_HTTPD_TASK
+     *
+     * That is xTaskCreate failing for want of heap. This chip has about 45 KB
+     * of plain DRAM, and in setup mode it is being asked to hold chip, BLE,
+     * mDNS and CASE alongside a SoftAP, a DHCP server and a captive DNS
+     * responder. The same firmware starts the web server perfectly once it has
+     * credentials and drops the AP, which is what pins the cause on setup mode
+     * rather than on Matter.
+     *
+     * So Matter waits for a network. Nothing is lost: a controller cannot
+     * commission a device it has no route to, and the portal is how this
+     * project gets credentials onto the board. Matter starts on the next boot,
+     * once there is a network to be discovered on.
+     *
+     * When it does start, it goes first, and only because of who owns the
+     * Wi-Fi driver: chip's ESP32 platform layer initializes esp_netif and
+     * esp_wifi from inside InitChipStack, and doing that twice fails.
+     * net_manager detects a driver that is already up and joins it.
      */
-    start_matter();
+    const bool have_credentials = cfg->net.ssid[0] != '\0';
+    if (have_credentials) {
+        start_matter();
+    } else if (matter_lock_available()) {
+        ESP_LOGW(k_tag, "no Wi-Fi credentials: starting the setup portal only, Matter waits for the next boot");
+    }
 
     /* Networking: a reader must keep working on a door whose Wi-Fi is down, so
      * nothing above this line depends on it. */

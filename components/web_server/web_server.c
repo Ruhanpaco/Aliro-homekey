@@ -1236,6 +1236,10 @@ static esp_err_t handle_wifi_connect(httpd_req_t *req)
     if (save_err != ESP_OK) {
         ESP_LOGE(k_tag, "joined '%s' but could not store the credentials: %s", ssid, reason);
     }
+
+    /* The setup page restarts the device itself once this reply is on screen,
+     * which is also what starts Matter: the stack is skipped while there are
+     * no credentials, and there are credentials now. */
     return send_json_response(req, true, "Connected", NULL, data);
 }
 
