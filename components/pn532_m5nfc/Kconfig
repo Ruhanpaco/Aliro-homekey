@@ -1,0 +1,77 @@
+menu "PN532 NFC frontend"
+
+    choice PN532_BUS
+        prompt "Bus"
+        default PN532_BUS_SPI
+        help
+            How the PN532 module is wired. Most breakout boards have a pair of
+            DIP switches selecting this on the module itself; they must agree.
+
+        config PN532_BUS_SPI
+            bool "SPI"
+        config PN532_BUS_I2C
+            bool "I2C"
+    endchoice
+
+    config PN532_SPI_HOST
+        int "SPI host (1 = SPI2, 2 = SPI3)"
+        depends on PN532_BUS_SPI
+        range 1 2
+        default 1
+
+    config PN532_SPI_SCK
+        int "SCK pin"
+        depends on PN532_BUS_SPI
+        default 18
+
+    config PN532_SPI_MISO
+        int "MISO pin"
+        depends on PN532_BUS_SPI
+        default 19
+
+    config PN532_SPI_MOSI
+        int "MOSI pin"
+        depends on PN532_BUS_SPI
+        default 23
+
+    config PN532_SPI_CS
+        int "CS pin"
+        depends on PN532_BUS_SPI
+        default 5
+
+    config PN532_SPI_FREQ_HZ
+        int "SPI clock (Hz)"
+        depends on PN532_BUS_SPI
+        default 1000000
+        help
+            The PN532 is specified to 5 MHz. 1 MHz is a safe default for the
+            jumper wires these modules are usually attached with.
+
+    config PN532_I2C_SDA
+        int "SDA pin"
+        depends on PN532_BUS_I2C
+        default 21
+
+    config PN532_I2C_SCL
+        int "SCL pin"
+        depends on PN532_BUS_I2C
+        default 22
+
+    config PN532_I2C_FREQ_HZ
+        int "I2C clock (Hz)"
+        depends on PN532_BUS_I2C
+        default 100000
+
+    config PN532_I2C_ADDR
+        hex "I2C address"
+        depends on PN532_BUS_I2C
+        default 0x24
+
+    config PN532_RST_PIN
+        int "RSTPD_N pin, or -1 if not wired"
+        default -1
+        help
+            Pulsed low at start-up to recover a wedged chip. Leave at -1 when
+            the module's reset line is not connected.
+
+endmenu

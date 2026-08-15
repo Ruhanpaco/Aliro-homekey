@@ -16,6 +16,8 @@
  * PN532/C1 User Manual (UM0701-02), section 6.2.1.
  */
 
+#include "pn532.h"
+
 #include "nfc_transport.h"
 
 #include <driver/gpio.h>
@@ -63,7 +65,7 @@ static const uint8_t k_ack[] = {0x00, 0x00, 0xFF, 0x00, 0xFF, 0x00};
 /* --- driver state -------------------------------------------------------- */
 
 typedef struct {
-    nfc_hw_config_t cfg;
+    pn532_config_t cfg;
 
     spi_device_handle_t spi;
     i2c_master_bus_handle_t i2c_bus;
@@ -86,7 +88,7 @@ static pn532_t s_pn532;
 
 static bool is_spi(const pn532_t *dev)
 {
-    return dev->cfg.bus == NFC_BUS_SPI;
+    return dev->cfg.bus == PN532_BUS_SPI;
 }
 
 /*
@@ -357,7 +359,7 @@ static esp_err_t bus_init(pn532_t *dev)
 /** @brief Pulse RSTPD_N if the board wired it, so a wedged chip comes back. */
 static void hardware_reset(const pn532_t *dev)
 {
-    if (dev->cfg.rst_pin == APP_CFG_PIN_UNSET) {
+    if (dev->cfg.rst_pin == PN532_PIN_UNSET) {
         return;
     }
     const gpio_config_t io = {
@@ -376,9 +378,8 @@ static void hardware_reset(const pn532_t *dev)
     vTaskDelay(pdMS_TO_TICKS(10));
 }
 
-static esp_err_t pn532_init(void *ctx)
+static esp_err_t pn532_start(pn532_t *dev)
 {
-    pn532_t *dev = ctx;
 
     ESP_RETURN_ON_ERROR(bus_init(dev), k_tag, "bus init failed");
     hardware_reset(dev);
@@ -425,16 +426,15 @@ static esp_err_t pn532_init(void *ctx)
 
 /* --- polling loop -------------------------------------------------------- */
 
-static void pn532_poll(void *ctx)
+void pn532_update(void)
 {
-    (void)ctx;
     /* Nothing to service: the PN532 does discovery inside InListPassiveTarget,
      * which activate() issues on every pass. */
 }
 
-static bool pn532_activate(void *ctx)
+bool pn532_activate(void)
 {
-    pn532_t *dev = ctx;
+    pn532_t *dev = &s_pn532;
     if (!dev->ready) {
         return false;
     }
@@ -478,9 +478,9 @@ static bool pn532_activate(void *ctx)
     return true;
 }
 
-static void pn532_deactivate(void *ctx)
+void pn532_deactivate(void)
 {
-    pn532_t *dev = ctx;
+    pn532_t *dev = &s_pn532;
     if (!dev->selected) {
         return;
     }
@@ -489,10 +489,10 @@ static void pn532_deactivate(void *ctx)
     dev->selected = false;
 }
 
-static esp_err_t pn532_exchange(void *ctx, const uint8_t *command, size_t command_len, uint8_t *response,
-                                size_t *response_len)
+esp_err_t pn532_message_exchange(const uint8_t *command, size_t command_len, uint8_t *response,
+                                 size_t *response_len)
 {
-    pn532_t *dev = ctx;
+    pn532_t *dev = &s_pn532;
     ESP_RETURN_ON_FALSE(dev->selected, ESP_ERR_INVALID_STATE, k_tag, "no target selected");
     ESP_RETURN_ON_FALSE(command && response && response_len, ESP_ERR_INVALID_ARG, k_tag, "invalid exchange");
     /* One target byte and the APDU have to fit a single frame. */
@@ -527,19 +527,83 @@ static esp_err_t pn532_exchange(void *ctx, const uint8_t *command, size_t comman
 
 /* --- public -------------------------------------------------------------- */
 
+/* --- the five primitives, as pn532.h declares them ----------------------- */
+
+esp_err_t pn532_begin(const pn532_config_t *cfg)
+{
+    ESP_RETURN_ON_FALSE(cfg, ESP_ERR_INVALID_ARG, k_tag, "no PN532 configuration");
+    s_pn532 = (pn532_t){0};
+    s_pn532.cfg = *cfg;
+    return pn532_start(&s_pn532);
+}
+
+/* --- nfc_transport_t adapter -------------------------------------------- */
+
+/*
+ * This firmware drives the reader through nfc_transport_t, which passes a
+ * context pointer the five primitives above do not need -- the PN532 is a
+ * singleton either way. These wrappers exist only to bridge that difference,
+ * so the same driver serves both this project and an esp-matter door lock,
+ * whose delegate calls the primitives directly.
+ */
+static esp_err_t transport_init(void *ctx)
+{
+    (void)ctx;
+    return pn532_start(&s_pn532);
+}
+
+static void transport_poll(void *ctx)
+{
+    (void)ctx;
+    pn532_update();
+}
+
+static bool transport_activate(void *ctx)
+{
+    (void)ctx;
+    return pn532_activate();
+}
+
+static void transport_deactivate(void *ctx)
+{
+    (void)ctx;
+    pn532_deactivate();
+}
+
+static esp_err_t transport_exchange(void *ctx, const uint8_t *command, size_t command_len, uint8_t *response,
+                                    size_t *response_len)
+{
+    (void)ctx;
+    return pn532_message_exchange(command, command_len, response, response_len);
+}
+
 static const nfc_transport_t k_pn532 = {
-    .init = pn532_init,
-    .poll = pn532_poll,
-    .activate = pn532_activate,
-    .deactivate = pn532_deactivate,
-    .exchange = pn532_exchange,
+    .init = transport_init,
+    .poll = transport_poll,
+    .activate = transport_activate,
+    .deactivate = transport_deactivate,
+    .exchange = transport_exchange,
     .ctx = &s_pn532,
     .name = "pn532",
 };
 
 const nfc_transport_t *nfc_transport_pn532(const nfc_hw_config_t *cfg)
 {
+    /* app_config's view of the wiring, translated into the driver's own. */
     s_pn532 = (pn532_t){0};
-    s_pn532.cfg = *cfg;
+    s_pn532.cfg = (pn532_config_t){
+        .bus = cfg->bus == NFC_BUS_I2C ? PN532_BUS_I2C : PN532_BUS_SPI,
+        .spi_host = cfg->spi_host,
+        .spi_sck = cfg->spi_sck,
+        .spi_miso = cfg->spi_miso,
+        .spi_mosi = cfg->spi_mosi,
+        .spi_cs = cfg->spi_cs,
+        .spi_freq_hz = cfg->spi_freq_hz,
+        .i2c_sda = cfg->i2c_sda,
+        .i2c_scl = cfg->i2c_scl,
+        .i2c_freq_hz = cfg->i2c_freq_hz,
+        .i2c_addr = cfg->i2c_addr,
+        .rst_pin = cfg->rst_pin == APP_CFG_PIN_UNSET ? PN532_PIN_UNSET : cfg->rst_pin,
+    };
     return &k_pn532;
 }
