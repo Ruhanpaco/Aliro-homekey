@@ -304,8 +304,13 @@ extern "C" esp_err_t matter_lock_start(const matter_lock_hooks_t *hooks)
      * station". It keeps reporting connectivity from the events it observes,
      * which is all the Matter side actually needs.
      */
+    /* Under the stack lock: this runs on the main task, the Matter task is
+     * already up by now, and SetWiFiStationMode reaches into the same state
+     * that task drives. */
+    chip::DeviceLayer::PlatformMgr().LockChipStack();
     chip::DeviceLayer::ConnectivityMgr().SetWiFiStationMode(
         chip::DeviceLayer::ConnectivityManager::kWiFiStationMode_ApplicationControlled);
+    chip::DeviceLayer::PlatformMgr().UnlockChipStack();
     ESP_LOGI(k_tag, "Wi-Fi station left under application control; net_manager owns the connection");
 #endif
 
