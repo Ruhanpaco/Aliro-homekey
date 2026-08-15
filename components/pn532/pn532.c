@@ -530,7 +530,24 @@ esp_err_t pn532_message_exchange(const uint8_t *command, size_t command_len, uin
 esp_err_t pn532_begin(const pn532_config_t *cfg)
 {
     ESP_RETURN_ON_FALSE(cfg, ESP_ERR_INVALID_ARG, k_tag, "no PN532 configuration");
+
+    /*
+     * Idempotent, because the reader above can be stopped and restarted at
+     * runtime -- adopting a reader identity from a Matter controller does
+     * exactly that -- and the bus underneath has not changed. Re-running
+     * bus_init would fail with ESP_ERR_INVALID_STATE from an already
+     * initialized SPI host, which would look like the PN532 had vanished.
+     * Changing pins still needs a restart; that is true of every pin in the
+     * configuration.
+     */
+    static bool started;
+    if (started) {
+        return ESP_OK;
+    }
+
     s_pn532 = (pn532_t){0};
     s_pn532.cfg = *cfg;
-    return pn532_start(&s_pn532);
+    const esp_err_t err = pn532_start(&s_pn532);
+    started = err == ESP_OK;
+    return err;
 }

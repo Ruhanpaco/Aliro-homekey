@@ -44,19 +44,42 @@ typedef struct {
 /**
  * @brief Watch access events without access_control knowing who is watching.
  *
- * One observer, called from the reader task or a timer callback, so it must
- * not block. MQTT is the only consumer today; an event loop replaces this the
- * moment there is a second one.
+ * Called from the reader task or a timer callback, so an observer must not
+ * block. There are two today -- MQTT, and the Matter door lock endpoint, which
+ * has to report LockState the moment a tap opens the door.
  */
 typedef void (*access_observer_cb_t)(const access_event_t *event, void *ctx);
 
-void access_control_set_observer(access_observer_cb_t cb, void *ctx);
+/** @brief Register an observer. ESP_ERR_NO_MEM when the table is full. */
+esp_err_t access_control_add_observer(access_observer_cb_t cb, void *ctx);
+
+/** @brief Unregister an observer previously added. */
+void access_control_remove_observer(access_observer_cb_t cb);
 
 /** @brief True when the lock output is in its locked state. */
 bool access_control_is_locked(void);
 
-/** @brief Register a credential that may open this lock. */
+/**
+ * @brief Register a credential that may open this lock.
+ *
+ * The key is copied, so the caller may pass a buffer that goes out of scope --
+ * which a credential arriving over Matter always does. Registering a key that
+ * is already present replaces it rather than filling a second slot.
+ */
 esp_err_t access_control_add_credential(const char *cred_pubkey_pem, size_t cred_pubkey_len, const char *label);
+
+/** @brief Withdraw a credential. ESP_ERR_NOT_FOUND when it was not there. */
+esp_err_t access_control_remove_credential(const char *cred_pubkey_pem, size_t cred_pubkey_len);
+
+/**
+ * @brief Recompute every stored key slot.
+ *
+ * A key slot is derived from the credential key *and* the reader's group
+ * sub-identifier, so adopting a new reader identity invalidates every slot
+ * derived under the old one. Without this the reader would answer every tap
+ * with "unknown credential" and nothing would say why.
+ */
+esp_err_t access_control_refresh_key_slots(void);
 
 /** @brief Number of credentials currently registered. */
 size_t access_control_credential_count(void);
@@ -77,6 +100,9 @@ void access_control_on_reader_result(const aliro_reader_result_t *result, void *
 
 /** @brief Drive the lock output to its unlocked state for the configured time. */
 esp_err_t access_control_unlock(void);
+
+/** @brief Drive the lock output back to locked now, cancelling any relock timer. */
+esp_err_t access_control_lock(void);
 
 #ifdef __cplusplus
 }

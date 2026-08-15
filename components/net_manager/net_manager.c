@@ -272,17 +272,38 @@ esp_err_t net_manager_start(const net_config_t *cfg)
         ESP_RETURN_ON_ERROR(loop_err, k_tag, "event loop create failed");
     }
 
-    /* Both interfaces exist from the start. Creating one later, while Wi-Fi is
+    /*
+     * Both interfaces exist from the start. Creating one later, while Wi-Fi is
      * running, is the kind of reordering that works on the bench and fails on
-     * a cold boot. */
-    s_net.sta_netif = esp_netif_create_default_wifi_sta();
-    s_net.ap_netif = esp_netif_create_default_wifi_ap();
+     * a cold boot.
+     *
+     * Reused rather than created outright, because in a Matter build the stack
+     * has already been brought up by the time this runs: chip's ESP32 platform
+     * layer creates the station netif and initializes the Wi-Fi driver from
+     * inside InitChipStack. Creating a second default station netif aborts,
+     * and esp_wifi_init on a running driver fails -- so take what is there.
+     */
+    s_net.sta_netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    if (!s_net.sta_netif) {
+        s_net.sta_netif = esp_netif_create_default_wifi_sta();
+    }
+    s_net.ap_netif = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
+    if (!s_net.ap_netif) {
+        s_net.ap_netif = esp_netif_create_default_wifi_ap();
+    }
     ESP_RETURN_ON_FALSE(s_net.sta_netif && s_net.ap_netif, ESP_ERR_NO_MEM, k_tag, "netif creation failed");
     esp_netif_set_hostname(s_net.sta_netif, s_net.cfg.hostname);
 
-    const wifi_init_config_t init_cfg = WIFI_INIT_CONFIG_DEFAULT();
-    ESP_RETURN_ON_ERROR(esp_wifi_init(&init_cfg), k_tag, "esp_wifi_init failed");
-    ESP_RETURN_ON_ERROR(esp_wifi_set_storage(WIFI_STORAGE_RAM), k_tag, "wifi storage failed");
+    /* esp_wifi_get_mode is the documented way to ask whether the driver is
+     * initialized: it answers ESP_ERR_WIFI_NOT_INIT when it is not. */
+    wifi_mode_t existing_mode;
+    if (esp_wifi_get_mode(&existing_mode) == ESP_OK) {
+        ESP_LOGI(k_tag, "the Wi-Fi driver is already running; joining it rather than initializing it again");
+    } else {
+        const wifi_init_config_t init_cfg = WIFI_INIT_CONFIG_DEFAULT();
+        ESP_RETURN_ON_ERROR(esp_wifi_init(&init_cfg), k_tag, "esp_wifi_init failed");
+        ESP_RETURN_ON_ERROR(esp_wifi_set_storage(WIFI_STORAGE_RAM), k_tag, "wifi storage failed");
+    }
 
     ESP_RETURN_ON_ERROR(esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, on_wifi_event, NULL, NULL),
                         k_tag, "wifi event registration failed");

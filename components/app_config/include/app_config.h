@@ -203,6 +203,17 @@ char *app_config_hardware_caps_json(void);
  */
 char *app_config_load_pem(const char *key);
 
+/**
+ * @brief Store a PEM key in the same place the flasher writes them.
+ *
+ * Used when a Matter controller provisions a reader identity, so a device
+ * commissioned once comes back up with that identity after a power cut.
+ */
+esp_err_t app_config_save_pem(const char *key, const char *pem);
+
+/** @brief Erase a stored PEM key. Absent is treated as success. */
+esp_err_t app_config_erase_pem(const char *key);
+
 /** @brief Parse the 32-char hex group identifier into 16 bytes. */
 esp_err_t app_config_parse_group_id(const char *hex, uint8_t *out, size_t out_len);
 

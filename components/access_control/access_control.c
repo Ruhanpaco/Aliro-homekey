@@ -13,26 +13,53 @@
 #include <sdkconfig.h>
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static const char *const k_tag = "aliro/access";
 
+#define ACCESS_MAX_OBSERVERS 3
+
 static lock_config_t s_lock;
 static bool s_locked = true;
-static access_observer_cb_t s_observer;
-static void *s_observer_ctx;
+
+static struct {
+    access_observer_cb_t cb;
+    void *ctx;
+} s_observers[ACCESS_MAX_OBSERVERS];
 
 static void notify(const access_event_t *event)
 {
-    if (s_observer) {
-        s_observer(event, s_observer_ctx);
+    for (size_t i = 0; i < ACCESS_MAX_OBSERVERS; i++) {
+        if (s_observers[i].cb) {
+            s_observers[i].cb(event, s_observers[i].ctx);
+        }
     }
 }
 
-void access_control_set_observer(access_observer_cb_t cb, void *ctx)
+esp_err_t access_control_add_observer(access_observer_cb_t cb, void *ctx)
 {
-    s_observer = cb;
-    s_observer_ctx = ctx;
+    ESP_RETURN_ON_FALSE(cb, ESP_ERR_INVALID_ARG, k_tag, "no observer");
+
+    for (size_t i = 0; i < ACCESS_MAX_OBSERVERS; i++) {
+        if (s_observers[i].cb == NULL || s_observers[i].cb == cb) {
+            s_observers[i].cb = cb;
+            s_observers[i].ctx = ctx;
+            return ESP_OK;
+        }
+    }
+    ESP_LOGE(k_tag, "no room for another access observer");
+    return ESP_ERR_NO_MEM;
+}
+
+void access_control_remove_observer(access_observer_cb_t cb)
+{
+    for (size_t i = 0; i < ACCESS_MAX_OBSERVERS; i++) {
+        if (s_observers[i].cb == cb) {
+            s_observers[i].cb = NULL;
+            s_observers[i].ctx = NULL;
+        }
+    }
 }
 
 bool access_control_is_locked(void)
@@ -44,7 +71,7 @@ bool access_control_is_locked(void)
 #define UNLOCKED_LEVEL (s_lock.active_low ? 0 : 1)
 
 typedef struct {
-    const char *pubkey_pem;
+    char *pubkey_pem; /*!< owned: credentials arrive on other people's stacks */
     size_t pubkey_len;
     uint8_t key_slot[ALIRO_KEY_SLOT_MAX_LEN];
     size_t key_slot_len;
@@ -57,22 +84,19 @@ static esp_timer_handle_t s_relock_timer;
 
 /* --- Credential store ---------------------------------------------------- */
 
-esp_err_t access_control_add_credential(const char *cred_pubkey_pem, size_t cred_pubkey_len, const char *label)
+static credential_entry_t *find_by_key_slot(const uint8_t *key_slot, size_t key_slot_len);
+
+/**
+ * @brief Derive a key slot, and settle which PEM length the SDK wanted.
+ *
+ * @param[inout] pem_len Length offered on input, length that actually worked
+ *                       on output
+ */
+static esp_err_t derive_key_slot(const char *cred_pubkey_pem, size_t *pem_len, uint8_t *key_slot, size_t *key_slot_len,
+                                 const char *label)
 {
-    ESP_RETURN_ON_FALSE(cred_pubkey_pem && cred_pubkey_len > 0, ESP_ERR_INVALID_ARG, k_tag, "invalid credential");
-
-    credential_entry_t *slot = NULL;
-    for (size_t i = 0; i < CONFIG_ALIRO_MAX_CREDENTIALS; i++) {
-        if (!s_credentials[i].used) {
-            slot = &s_credentials[i];
-            break;
-        }
-    }
-    ESP_RETURN_ON_FALSE(slot, ESP_ERR_NO_MEM, k_tag, "credential table full");
-
-    slot->key_slot_len = sizeof(slot->key_slot);
-    esp_err_t err =
-        aliro_reader_key_slot_from_pubkey(cred_pubkey_pem, cred_pubkey_len, slot->key_slot, &slot->key_slot_len);
+    *key_slot_len = ALIRO_KEY_SLOT_MAX_LEN;
+    esp_err_t err = aliro_reader_key_slot_from_pubkey(cred_pubkey_pem, *pem_len, key_slot, key_slot_len);
 
     if (err != ESP_OK) {
         /*
@@ -86,32 +110,115 @@ esp_err_t access_control_add_credential(const char *cred_pubkey_pem, size_t cred
          * length spans that NUL, which is what mbedTLS wants. A caller that
          * passes strlen() instead lands one byte short.
          */
-        const bool nul_terminated = cred_pubkey_len > 0 && cred_pubkey_pem[cred_pubkey_len - 1] == '\0';
+        const bool nul_terminated = *pem_len > 0 && cred_pubkey_pem[*pem_len - 1] == '\0';
         ESP_LOGE(k_tag, "key slot derivation failed for '%s': %d bytes, %s, starts '%.26s'",
-                 label ? label : "unnamed", (int)cred_pubkey_len,
+                 label ? label : "unnamed", (int)*pem_len,
                  nul_terminated ? "NUL-terminated" : "not NUL-terminated", cred_pubkey_pem);
 
         if (nul_terminated) {
-            slot->key_slot_len = sizeof(slot->key_slot);
-            err = aliro_reader_key_slot_from_pubkey(cred_pubkey_pem, cred_pubkey_len - 1, slot->key_slot,
-                                                    &slot->key_slot_len);
+            *key_slot_len = ALIRO_KEY_SLOT_MAX_LEN;
+            err = aliro_reader_key_slot_from_pubkey(cred_pubkey_pem, *pem_len - 1, key_slot, key_slot_len);
             if (err == ESP_OK) {
                 ESP_LOGW(k_tag, "the SDK wants the length WITHOUT the trailing NUL; using %d bytes",
-                         (int)cred_pubkey_len - 1);
-                cred_pubkey_len -= 1;
+                         (int)*pem_len - 1);
+                *pem_len -= 1;
             }
         }
     }
-    ESP_RETURN_ON_ERROR(err, k_tag, "failed to derive key slot");
+    return err;
+}
 
-    slot->pubkey_pem = cred_pubkey_pem;
-    slot->pubkey_len = cred_pubkey_len;
+esp_err_t access_control_add_credential(const char *cred_pubkey_pem, size_t cred_pubkey_len, const char *label)
+{
+    ESP_RETURN_ON_FALSE(cred_pubkey_pem && cred_pubkey_len > 0, ESP_ERR_INVALID_ARG, k_tag, "invalid credential");
+
+    uint8_t key_slot[ALIRO_KEY_SLOT_MAX_LEN];
+    size_t key_slot_len = 0;
+    size_t pem_len = cred_pubkey_len;
+    ESP_RETURN_ON_ERROR(derive_key_slot(cred_pubkey_pem, &pem_len, key_slot, &key_slot_len, label), k_tag,
+                        "failed to derive key slot");
+
+    /* A controller re-sending a credential it already sent is normal -- it
+     * happens on every re-commissioning -- and must not consume a second
+     * slot. */
+    credential_entry_t *slot = find_by_key_slot(key_slot, key_slot_len);
+    const bool replacing = slot != NULL;
+
+    if (!slot) {
+        for (size_t i = 0; i < CONFIG_ALIRO_MAX_CREDENTIALS; i++) {
+            if (!s_credentials[i].used) {
+                slot = &s_credentials[i];
+                break;
+            }
+        }
+    }
+    ESP_RETURN_ON_FALSE(slot, ESP_ERR_NO_MEM, k_tag, "credential table full");
+
+    /* Copied, because a credential provisioned over Matter lives on the Matter
+     * task's stack and is gone as soon as the command returns. */
+    char *copy = malloc(pem_len);
+    ESP_RETURN_ON_FALSE(copy, ESP_ERR_NO_MEM, k_tag, "out of memory storing credential '%s'",
+                        label ? label : "unnamed");
+    memcpy(copy, cred_pubkey_pem, pem_len);
+
+    free(slot->pubkey_pem);
+    slot->pubkey_pem = copy;
+    slot->pubkey_len = pem_len;
+    memcpy(slot->key_slot, key_slot, key_slot_len);
+    slot->key_slot_len = key_slot_len;
     strlcpy(slot->label, label ? label : "unnamed", sizeof(slot->label));
     slot->used = true;
 
-    ESP_LOGI(k_tag, "credential '%s' registered", slot->label);
+    ESP_LOGI(k_tag, "credential '%s' %s", slot->label, replacing ? "updated" : "registered");
     ESP_LOG_BUFFER_HEX_LEVEL(k_tag, slot->key_slot, slot->key_slot_len, ESP_LOG_DEBUG);
     return ESP_OK;
+}
+
+esp_err_t access_control_remove_credential(const char *cred_pubkey_pem, size_t cred_pubkey_len)
+{
+    ESP_RETURN_ON_FALSE(cred_pubkey_pem && cred_pubkey_len > 0, ESP_ERR_INVALID_ARG, k_tag, "invalid credential");
+
+    uint8_t key_slot[ALIRO_KEY_SLOT_MAX_LEN];
+    size_t key_slot_len = 0;
+    size_t pem_len = cred_pubkey_len;
+    ESP_RETURN_ON_ERROR(derive_key_slot(cred_pubkey_pem, &pem_len, key_slot, &key_slot_len, "removal"), k_tag,
+                        "failed to derive key slot");
+
+    credential_entry_t *slot = find_by_key_slot(key_slot, key_slot_len);
+    if (!slot) {
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    ESP_LOGI(k_tag, "credential '%s' withdrawn", slot->label);
+    free(slot->pubkey_pem);
+    memset(slot, 0, sizeof(*slot));
+    return ESP_OK;
+}
+
+esp_err_t access_control_refresh_key_slots(void)
+{
+    esp_err_t result = ESP_OK;
+
+    for (size_t i = 0; i < CONFIG_ALIRO_MAX_CREDENTIALS; i++) {
+        credential_entry_t *c = &s_credentials[i];
+        if (!c->used) {
+            continue;
+        }
+
+        size_t pem_len = c->pubkey_len;
+        uint8_t key_slot[ALIRO_KEY_SLOT_MAX_LEN];
+        size_t key_slot_len = 0;
+        const esp_err_t err = derive_key_slot(c->pubkey_pem, &pem_len, key_slot, &key_slot_len, c->label);
+        if (err != ESP_OK) {
+            ESP_LOGE(k_tag, "could not re-derive the key slot for '%s'; it will not open the door", c->label);
+            result = err;
+            continue;
+        }
+        memcpy(c->key_slot, key_slot, key_slot_len);
+        c->key_slot_len = key_slot_len;
+        c->pubkey_len = pem_len;
+    }
+    return result;
 }
 
 size_t access_control_credential_count(void)
@@ -123,10 +230,10 @@ size_t access_control_credential_count(void)
     return count;
 }
 
-static const credential_entry_t *find_by_key_slot(const uint8_t *key_slot, size_t key_slot_len)
+static credential_entry_t *find_by_key_slot(const uint8_t *key_slot, size_t key_slot_len)
 {
     for (size_t i = 0; i < CONFIG_ALIRO_MAX_CREDENTIALS; i++) {
-        const credential_entry_t *c = &s_credentials[i];
+        credential_entry_t *c = &s_credentials[i];
         if (c->used && c->key_slot_len == key_slot_len && memcmp(c->key_slot, key_slot, key_slot_len) == 0) {
             return c;
         }
@@ -200,6 +307,24 @@ esp_err_t access_control_unlock(void)
     ESP_LOGI(k_tag, "unlocked for %u ms", (unsigned)s_lock.unlock_ms);
     notify(&(access_event_t){.type = ACCESS_EVENT_LOCK_STATE, .locked = false});
     return esp_timer_start_once(s_relock_timer, (uint64_t)s_lock.unlock_ms * 1000);
+}
+
+esp_err_t access_control_lock(void)
+{
+    ESP_RETURN_ON_FALSE(s_relock_timer, ESP_ERR_INVALID_STATE, k_tag, "access control not initialized");
+
+    /* Stop the relock timer first: without this a Lock command issued during
+     * an unlock window is undone when the timer fires and re-announces a state
+     * that is already true. */
+    (void)esp_timer_stop(s_relock_timer);
+    ESP_RETURN_ON_ERROR(gpio_set_level(s_lock.gpio, LOCKED_LEVEL), k_tag, "lock GPIO set failed");
+
+    if (!s_locked) {
+        s_locked = true;
+        ESP_LOGI(k_tag, "locked");
+        notify(&(access_event_t){.type = ACCESS_EVENT_LOCK_STATE, .locked = true});
+    }
+    return ESP_OK;
 }
 
 /* --- Decision ------------------------------------------------------------ */

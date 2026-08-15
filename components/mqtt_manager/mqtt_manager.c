@@ -239,7 +239,7 @@ esp_err_t mqtt_manager_start(const mqtt_config_t *cfg, const char *device_name)
                         "event registration failed");
     ESP_RETURN_ON_ERROR(esp_mqtt_client_start(s_mqtt.client), k_tag, "client start failed");
 
-    access_control_set_observer(on_access_event, NULL);
+    (void)access_control_add_observer(on_access_event, NULL);
 
     ESP_LOGI(k_tag, "connecting to %s, base topic '%s'", uri, cfg->base_topic);
     return ESP_OK;
@@ -250,7 +250,7 @@ esp_err_t mqtt_manager_stop(void)
     if (!s_mqtt.client) {
         return ESP_OK;
     }
-    access_control_set_observer(NULL, NULL);
+    access_control_remove_observer(on_access_event);
     esp_mqtt_client_stop(s_mqtt.client);
     esp_mqtt_client_destroy(s_mqtt.client);
     s_mqtt.client = NULL;

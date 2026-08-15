@@ -653,6 +653,45 @@ char *app_config_load_pem(const char *key)
     return pem;
 }
 
+esp_err_t app_config_save_pem(const char *key, const char *pem)
+{
+    ESP_RETURN_ON_FALSE(key && pem, ESP_ERR_INVALID_ARG, k_tag, "invalid PEM to store");
+
+    nvs_handle_t handle;
+    ESP_RETURN_ON_ERROR(nvs_open(k_nvs_namespace, NVS_READWRITE, &handle), k_tag, "nvs_open failed");
+
+    /* nvs_set_str stores the terminator and reports it back on read, which is
+     * the length convention the rest of this project uses for PEM. */
+    esp_err_t err = nvs_set_str(handle, key, pem);
+    if (err == ESP_OK) {
+        err = nvs_commit(handle);
+    }
+    nvs_close(handle);
+
+    if (err == ESP_OK) {
+        ESP_LOGI(k_tag, "stored '%s' (%u bytes)", key, (unsigned)strlen(pem) + 1);
+    }
+    return err;
+}
+
+esp_err_t app_config_erase_pem(const char *key)
+{
+    ESP_RETURN_ON_FALSE(key, ESP_ERR_INVALID_ARG, k_tag, "no key");
+
+    nvs_handle_t handle;
+    ESP_RETURN_ON_ERROR(nvs_open(k_nvs_namespace, NVS_READWRITE, &handle), k_tag, "nvs_open failed");
+
+    esp_err_t err = nvs_erase_key(handle, key);
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        err = ESP_OK; /* already gone is the state the caller wanted */
+    }
+    if (err == ESP_OK) {
+        err = nvs_commit(handle);
+    }
+    nvs_close(handle);
+    return err;
+}
+
 static esp_err_t store_to_nvs(const app_config_t *cfg)
 {
     char *json = app_config_to_json(cfg, true);

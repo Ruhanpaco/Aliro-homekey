@@ -268,6 +268,39 @@ esp_err_t aliro_reader_key_slot_from_pubkey(const char *cred_pubkey_pem, size_t 
     return esp_aliro_get_key_slot_from_cred_pubkey(cred_pubkey_pem, cred_pubkey_len, key_slot, key_slot_len);
 }
 
+bool aliro_reader_is_running(void)
+{
+    return s_reader.running && s_reader.reader != 0;
+}
+
+esp_err_t aliro_reader_get_public_key_raw(uint8_t *out, size_t *out_len)
+{
+    ESP_RETURN_ON_FALSE(s_reader.reader, ESP_ERR_INVALID_STATE, k_tag, "reader not created");
+    return esp_aliro_reader_get_public_key_raw_data(s_reader.reader, out, out_len);
+}
+
+esp_err_t aliro_reader_get_group_identifier(uint8_t *out, size_t *out_len)
+{
+    ESP_RETURN_ON_FALSE(s_reader.reader, ESP_ERR_INVALID_STATE, k_tag, "reader not created");
+    return esp_aliro_reader_get_group_identifier(s_reader.reader, out, out_len);
+}
+
+esp_err_t aliro_reader_get_group_sub_identifier(uint8_t *out, size_t *out_len)
+{
+    ESP_RETURN_ON_FALSE(s_reader.reader, ESP_ERR_INVALID_STATE, k_tag, "reader not created");
+    return esp_aliro_reader_get_group_sub_identifier(s_reader.reader, out, out_len);
+}
+
+esp_err_t aliro_reader_pubkey_pem_from_raw(const uint8_t *raw, size_t raw_len, char *pem, size_t *pem_len)
+{
+    return esp_aliro_get_pubkey_pem_from_raw_data(raw, raw_len, pem, pem_len);
+}
+
+esp_err_t aliro_reader_privkey_pem_from_raw(const uint8_t *raw, size_t raw_len, char *pem, size_t *pem_len)
+{
+    return esp_aliro_get_privkey_pem_from_raw_data(raw, raw_len, pem, pem_len);
+}
+
 esp_err_t aliro_reader_log_identity(void)
 {
     ESP_RETURN_ON_FALSE(s_reader.reader, ESP_ERR_INVALID_STATE, k_tag, "reader not created");
