@@ -17,6 +17,14 @@ address and nothing else, no file, no line, no expression.
 Addresses can be given as arguments, or piped in as raw monitor output: the
 "Backtrace: 0x400d7e11:0x3ffb7e50 ..." form is understood, and only the PC of
 each pair is decoded (the second half is the stack pointer).
+
+Use the ELF from the build that crashed. A different build of the same source
+will still answer -- names shift only slightly between builds, so the output
+looks entirely reasonable and is quietly wrong. Match the "ELF file SHA256"
+the panic prints against the ELF before believing a line number.
+
+Where a line points into a header, that is usually inlining rather than an
+error: the table records the innermost inlined location, not the caller.
 """
 
 from __future__ import annotations
@@ -47,13 +55,25 @@ def load_functions(elf: ELFFile) -> tuple[list[int], list[tuple[int, str]]]:
     return [f[0] for f in functions], [(f[1], f[2]) for f in functions]
 
 
-def load_lines(elf: ELFFile) -> list[tuple[int, str, int]]:
-    """Every (address, file, line) the debug info knows about, sorted."""
+def load_lines(elf: ELFFile) -> list[tuple[int, int, list[tuple[int, str, int]]]]:
+    """Line rows grouped into sequences: (low, high, [(address, file, line)]).
+
+    A sequence -- not a compilation unit -- is DWARF's unit of contiguous
+    code, ended by an end_sequence row whose address is one past the last
+    instruction. A unit may contain several, scattered anywhere in the image,
+    so a unit's outermost addresses say nothing about what lies between them.
+
+    Two earlier versions of this got it wrong in the same direction: bisecting
+    one merged table, then bisecting per unit. Both answer every address
+    confidently, and both attributed an ESP-IDF panic to a newlib header. An
+    address inside no sequence has no line, and saying so is the point.
+    """
     if not elf.has_dwarf_info():
         return []
 
-    entries: list[tuple[int, str, int]] = []
+    sequences: list[tuple[int, int, list[tuple[int, str, int]]]] = []
     dwarf = elf.get_dwarf_info()
+
     for unit in dwarf.iter_CUs():
         program = dwarf.line_program_for_CU(unit)
         if program is None:
@@ -62,15 +82,23 @@ def load_lines(elf: ELFFile) -> list[tuple[int, str, int]]:
         header = program.header
         file_entries = header["file_entry"]
         include_dirs = header["include_directory"]
+        rows: list[tuple[int, str, int]] = []
 
         for entry in program.get_entries():
             state = entry.state
-            if state is None or state.end_sequence:
+            if state is None:
                 continue
 
-            index = state.file
+            if state.end_sequence:
+                # Its address is the end of the range, exclusive.
+                if rows:
+                    rows.sort()
+                    sequences.append((rows[0][0], state.address, rows))
+                rows = []
+                continue
+
             try:
-                file_entry = file_entries[index]
+                file_entry = file_entries[state.file]
             except IndexError:
                 continue
 
@@ -83,13 +111,32 @@ def load_lines(elf: ELFFile) -> list[tuple[int, str, int]]:
                 folder = folder.decode() if isinstance(folder, bytes) else folder
                 name = f"{folder}/{name}"
 
-            entries.append((state.address, name, state.line))
+            rows.append((state.address, name, state.line))
 
-    entries.sort()
-    return entries
+    sequences.sort()
+    return sequences
 
 
-def describe(address: int, starts, spans, lines) -> str:
+def source_for(address: int, sequences) -> str:
+    """The file:line for an address, or nothing when no sequence covers it."""
+    index = bisect_right([sequence[0] for sequence in sequences], address) - 1
+    while index >= 0:
+        low, high, rows = sequences[index]
+        if low <= address < high:
+            row = bisect_right([r[0] for r in rows], address) - 1
+            if row >= 0:
+                _, path, number = rows[row]
+                return f"    {path}:{number}"
+            return ""
+        # Sequences can nest oddly after linker garbage collection; step back
+        # over any whose range ends before this address.
+        if high <= address:
+            return ""
+        index -= 1
+    return ""
+
+
+def describe(address: int, starts, spans, units) -> str:
     index = bisect_right(starts, address) - 1
     if index < 0:
         return f"0x{address:08x}  ?"
@@ -97,18 +144,10 @@ def describe(address: int, starts, spans, lines) -> str:
     end, name = spans[index]
     if address >= end:
         # Inside no known function: usually ROM, which carries no symbols.
-        where = "ROM or unmapped"
-        return f"0x{address:08x}  {where}"
+        return f"0x{address:08x}  ROM or unmapped"
 
     offset = address - starts[index]
-    source = ""
-    if lines:
-        line_index = bisect_right([entry[0] for entry in lines], address) - 1
-        if line_index >= 0:
-            _, path, number = lines[line_index]
-            source = f"    {path}:{number}"
-
-    return f"0x{address:08x}  {name} +{offset}{source}"
+    return f"0x{address:08x}  {name} +{offset}{source_for(address, units)}"
 
 
 def main() -> int:
@@ -134,10 +173,10 @@ def main() -> int:
     with open(path, "rb") as handle:
         elf = ELFFile(handle)
         starts, spans = load_functions(elf)
-        lines = load_lines(elf)
+        units = load_lines(elf)
 
         for address in ordered:
-            print(describe(address, starts, spans, lines))
+            print(describe(address, starts, spans, units))
 
     return 0
 

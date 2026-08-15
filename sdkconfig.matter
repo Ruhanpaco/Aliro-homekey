@@ -40,6 +40,13 @@ CONFIG_LWIP_HOOK_ND6_GET_GW_DEFAULT=y
 # Matter equivalents are all cost and no benefit.
 CONFIG_ENABLE_OTA_REQUESTOR=n
 CONFIG_ENABLE_CHIP_SHELL=n
+
+# Our own REPL is off here too, and not to save space: starting it swaps
+# stdout onto the driver-based UART VFS, and with chip, NimBLE and Wi-Fi all
+# logging concurrently that path asserted inside a blocking semaphore take on
+# real hardware, then recursed through the panic handler's own logging. See
+# components/serial_console/Kconfig.
+CONFIG_ALIRO_CONSOLE_ENABLE=n
 CONFIG_CHIP_ENABLE_BDX_LOG_TRANSFER=n
 CONFIG_SUPPORT_GROUPCAST_CLUSTER=n
 

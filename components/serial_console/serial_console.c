@@ -178,6 +178,26 @@ esp_err_t serial_console_start(const serial_console_hooks_t *hooks)
         s_hooks = *hooks;
     }
 
+#if !CONFIG_ALIRO_CONSOLE_ENABLE
+    /*
+     * Off in the Matter build, and for a specific reason rather than to save
+     * space. Starting the REPL swaps stdout onto the driver-based UART VFS,
+     * so from then on every ESP_LOG in the system goes through uart_write and
+     * takes a recursive mutex. On hardware, with chip, NimBLE and Wi-Fi all
+     * logging at once, that asserted inside xQueueReceive -- a blocking take
+     * from a context that may not block -- and the panic handler's own logging
+     * re-entered the same path and recursed until the stack was gone:
+     *
+     *     panic_abort <- __assert_func <- xQueueReceive <- xQueueSemaphoreTake
+     *       <- _lock_acquire_recursive <- uart_write <- esp_vfs_write <- esp_log
+     *
+     * This is a workaround, not a diagnosis of whose logging is at fault. The
+     * web UI covers everything the console offers, log view included.
+     */
+    ESP_LOGI(k_tag, "serial console disabled in this build; use the web UI");
+    return ESP_OK;
+#else
+
     esp_console_repl_t *repl = NULL;
     esp_console_repl_config_t repl_cfg = ESP_CONSOLE_REPL_CONFIG_DEFAULT();
     repl_cfg.prompt = "aliro>";
@@ -214,4 +234,5 @@ esp_err_t serial_console_start(const serial_console_hooks_t *hooks)
 
     ESP_LOGI(k_tag, "debug console ready - type 'help' for commands");
     return ESP_OK;
+#endif /* CONFIG_ALIRO_CONSOLE_ENABLE */
 }

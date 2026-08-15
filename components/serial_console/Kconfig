@@ -1,0 +1,20 @@
+menu "Aliro serial console"
+
+config ALIRO_CONSOLE_ENABLE
+    bool "Interactive serial console"
+    default y
+    help
+        The `aliro>` REPL on the serial port: status, identity, wifi,
+        unlock, factory-reset.
+
+        Turn this off for a build that runs the Matter stack. Starting the
+        REPL installs the driver-based UART VFS, after which every ESP_LOG
+        from every task goes through the UART driver and takes a mutex. With
+        chip, NimBLE and Wi-Fi all logging concurrently, that path asserts
+        inside a blocking semaphore take -- and since the panic handler logs
+        too, it re-enters and recurses until the stack is gone.
+
+        Everything the console does is also in the web UI, including the log
+        view, so this costs a convenience rather than a capability.
+
+endmenu
