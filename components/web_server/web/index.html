@@ -974,7 +974,8 @@ main{padding:0 1.5rem 1.5rem;height:100%;overflow-y:auto;background:var(--color-
               <div class="form-control">
                 <label class="label" for="ota_file"><span class="label-text text-sm">Firmware File (.bin)</span></label>
                 <input id="ota_file" type="file" accept=".bin" class="file-input">
-                <span class="label-text-alt text-xs text-muted">Select compiled firmware binary (.bin)</span>
+                <span class="label-text-alt text-xs text-muted">Use <code>&lt;target&gt;.firmware.bin</code> — the app alone.
+                  The <code>.factory.bin</code> is a full flash image for USB at offset 0.</span>
               </div>
 
               <button type="button" class="btn btn-primary w-full" id="ota_start" disabled

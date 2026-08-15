@@ -14,6 +14,7 @@
 
 #include <cJSON.h>
 #include <esp_app_desc.h>
+#include <esp_app_format.h>
 #include <esp_check.h>
 #include <esp_chip_info.h>
 #include <esp_http_server.h>
@@ -962,6 +963,7 @@ static esp_err_t handle_ota_upload(httpd_req_t *req)
     size_t total_written = 0;
     size_t last_reported = 0;
     const char *failure = NULL;
+    bool header_checked = false;
 
     while (remaining > 0) {
         const size_t want = remaining > buf_size ? buf_size : remaining;
@@ -981,6 +983,37 @@ static esp_err_t handle_ota_upload(httpd_req_t *req)
              * up. Treating this as "keep going" spins forever. */
             failure = "upload ended early";
             break;
+        }
+
+        /*
+         * Say which wrong file this is, before writing a byte of it.
+         *
+         * Every release ships two images whose names differ by one word, and
+         * only one of them belongs here: <target>.firmware.bin is the app
+         * alone, <target>.firmware.factory.bin is a full 4 MB flash dump for
+         * offset 0x0. The factory image begins with 0xFF padding, so
+         * esp_ota_write rejects it -- as "flash write failed", which sounds
+         * like a hardware fault and sends people looking at the wrong thing.
+         */
+        if (!header_checked) {
+            header_checked = true;
+
+            if (buf[0] != ESP_IMAGE_HEADER_MAGIC) {
+                ESP_LOGE(k_tag, "upload starts with 0x%02X, not an app image header", buf[0]);
+                failure = "this is not an application image -- upload the firmware.bin, "
+                          "not the firmware.factory.bin (that one is flashed over USB at 0x0)";
+                break;
+            }
+
+            if ((size_t)received >= sizeof(esp_image_header_t)) {
+                const esp_image_header_t *header = (const esp_image_header_t *)buf;
+                if (header->chip_id != CONFIG_IDF_FIRMWARE_CHIP_ID) {
+                    ESP_LOGE(k_tag, "image is for chip id %u, this is %u", (unsigned)header->chip_id,
+                             (unsigned)CONFIG_IDF_FIRMWARE_CHIP_ID);
+                    failure = "this firmware was built for a different chip";
+                    break;
+                }
+            }
         }
 
         if (esp_ota_write(handle, buf, received) != ESP_OK) {
