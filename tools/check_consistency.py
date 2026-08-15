@@ -155,6 +155,12 @@ def check_requires_exist() -> None:
         for dep in sorted(deps):
             if dep in local or dep in KNOWN_IDF_COMPONENTS:
                 continue
+            # A CMake variable, because the requirement list is conditional --
+            # matter_lock builds its own from ESP_MATTER_PATH. Nothing to check
+            # here without evaluating CMake, and the names it can expand to are
+            # in the set above anyway.
+            if dep.startswith("${"):
+                continue
             problems.append(
                 f"component '{component}' requires '{dep}', which is neither a local "
                 f"component nor a known ESP-IDF one"

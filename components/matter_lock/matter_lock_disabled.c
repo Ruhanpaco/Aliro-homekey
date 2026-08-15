@@ -11,6 +11,10 @@
  * web server means exactly one file differs between the two builds.
  */
 
+#include <sdkconfig.h>
+
+#if !CONFIG_ALIRO_MATTER_ENABLE
+
 #include "matter_lock.h"
 
 esp_err_t matter_lock_start(const matter_lock_hooks_t *hooks)
@@ -63,3 +67,5 @@ void matter_lock_report_lock_state(bool locked)
 {
     (void)locked;
 }
+
+#endif /* !CONFIG_ALIRO_MATTER_ENABLE */

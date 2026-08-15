@@ -20,6 +20,15 @@
  * door for one; this is a reader, not a keypad.
  */
 
+/*
+ * Compiled to nothing without CONFIG_ALIRO_MATTER_ENABLE. The component builds
+ * the same file list either way -- see this component's CMakeLists for why the
+ * switch cannot live there -- so the guard lives here instead.
+ */
+#include <sdkconfig.h>
+
+#if CONFIG_ALIRO_MATTER_ENABLE
+
 #include "matter_aliro_delegate.h"
 #include "matter_lock_priv.h"
 
@@ -477,3 +486,5 @@ void emberAfPluginDoorLockOnAutoRelock(EndpointId endpointId)
     /* access_control runs its own relock timer off the configured unlock
      * duration, and reports the result back through the observer. */
 }
+
+#endif /* CONFIG_ALIRO_MATTER_ENABLE */

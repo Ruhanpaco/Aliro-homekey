@@ -1,21 +1,31 @@
-# Two very different components behind one header.
+# Every source, every time, with the *contents* switched by
+# CONFIG_ALIRO_MATTER_ENABLE rather than the file list.
 #
-# With CONFIG_ALIRO_MATTER_ENABLE the real thing is built, which needs esp-matter
-# on the include path -- see the EXTRA_COMPONENT_DIRS block in the top-level
-# CMakeLists.txt. Without it only the stubs are compiled, so an ordinary
-# ESP-IDF build (no esp-matter installed at all) still links and every caller
-# keeps the same API.
-if(CONFIG_ALIRO_MATTER_ENABLE)
-    idf_component_register(SRCS         "matter_lock.cpp" "matter_aliro_delegate.cpp" "matter_lock_store.cpp"
-                           INCLUDE_DIRS "include"
-                           REQUIRES     esp_matter chip aliro_reader
-                           PRIV_REQUIRES nvs_flash)
-
-    # CHIP_HAVE_CONFIG_H is how the Matter headers find their generated
-    # configuration; -Wno-overloaded-virtual because the Door Lock server
-    # deliberately overloads emberAfPluginDoorLockGetSchedule by argument type.
-    target_compile_options(${COMPONENT_LIB} PRIVATE "-DCHIP_HAVE_CONFIG_H" "-Wno-overloaded-virtual")
-else()
-    idf_component_register(SRCS         "matter_lock_disabled.c"
-                           INCLUDE_DIRS "include")
+# Not a style choice. ESP-IDF evaluates a component's CMakeLists twice, and the
+# first pass -- the one that collects REQUIRES -- runs before component Kconfig
+# files have been processed, so CONFIG_ symbols from this project do not exist
+# yet. An `if(CONFIG_ALIRO_MATTER_ENABLE)` around idf_component_register
+# therefore took the false branch when the requirements were collected and the
+# true branch when the sources were compiled: the Matter sources built with no
+# Matter include path, and the first #include failed.
+#
+# ESP_MATTER_PATH is an environment variable, which both passes can see, and it
+# is exactly the condition that decides whether these components exist at all.
+set(_requires aliro_reader)
+if(DEFINED ENV{ESP_MATTER_PATH})
+    list(APPEND _requires esp_matter chip)
 endif()
+
+idf_component_register(SRCS         "matter_lock.cpp" "matter_aliro_delegate.cpp" "matter_lock_store.cpp"
+                                    "matter_lock_disabled.c"
+                       INCLUDE_DIRS "include"
+                       REQUIRES     ${_requires}
+                       PRIV_REQUIRES nvs_flash)
+
+# CHIP_HAVE_CONFIG_H is how the Matter headers find their generated
+# configuration. -Wno-overloaded-virtual because the Door Lock server
+# deliberately overloads emberAfPluginDoorLockGetSchedule by argument type, and
+# it is scoped to C++ because GCC rejects it on a C command line.
+target_compile_options(${COMPONENT_LIB} PRIVATE
+                       "-DCHIP_HAVE_CONFIG_H"
+                       "$<$<COMPILE_LANGUAGE:CXX>:-Wno-overloaded-virtual>")

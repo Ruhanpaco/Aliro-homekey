@@ -6,6 +6,15 @@
  * Matter stack bring-up and the door lock endpoint.
  */
 
+/*
+ * Compiled to nothing without CONFIG_ALIRO_MATTER_ENABLE. The component builds
+ * the same file list either way -- see this component's CMakeLists for why the
+ * switch cannot live there -- so the guard lives here instead.
+ */
+#include <sdkconfig.h>
+
+#if CONFIG_ALIRO_MATTER_ENABLE
+
 #include "matter_lock.h"
 #include "matter_lock_priv.h"
 
@@ -334,3 +343,5 @@ extern "C" void matter_lock_report_lock_state(bool locked)
      * touch the cluster directly. */
     (void)chip::DeviceLayer::PlatformMgr().ScheduleWork(report_lock_state, locked ? 1 : 0);
 }
+
+#endif /* CONFIG_ALIRO_MATTER_ENABLE */
