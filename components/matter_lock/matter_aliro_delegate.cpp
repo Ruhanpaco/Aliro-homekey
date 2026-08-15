@@ -45,12 +45,23 @@ static constexpr size_t k_pem_max = 256;
 CHIP_ERROR AliroReaderDelegate::GetAliroReaderVerificationKey(MutableByteSpan &verificationKey)
 {
     /*
-     * An empty span is how the cluster says "null", which is the honest answer
-     * before anything has configured a reader. Returning an error instead
-     * makes the whole attribute read fail, and a controller that cannot read
-     * the Aliro attributes will not try to provision.
+     * Null until a controller has provisioned one, and specifically NOT the
+     * key of whatever reader happens to be running.
+     *
+     * The cluster server refuses SetAliroReaderConfig unless this attribute
+     * reads null -- an existing configuration has to be cleared first. This
+     * reader always has an identity loaded, the development one if nothing
+     * else, so answering from the live reader made the device look already
+     * provisioned and Apple's request was rejected on arrival:
+     *
+     *     E [SetAliroReaderConfig] Aliro reader verification key was not read
+     *                              or is not null.
+     *
+     * The development identity is a local default, not something a controller
+     * gave us, and reporting it as an Aliro reader configuration was simply
+     * untrue.
      */
-    if (!aliro_reader_is_running()) {
+    if (!matter_lock_reader_configured() || !aliro_reader_is_running()) {
         verificationKey.reduce_size(0);
         return CHIP_NO_ERROR;
     }
@@ -67,7 +78,10 @@ CHIP_ERROR AliroReaderDelegate::GetAliroReaderVerificationKey(MutableByteSpan &v
 
 CHIP_ERROR AliroReaderDelegate::GetAliroReaderGroupIdentifier(MutableByteSpan &groupIdentifier)
 {
-    if (!aliro_reader_is_running()) {
+    /* Nullable, and null for the same reason as the verification key: the
+     * group identifier of a locally-defaulted reader is not one a controller
+     * set. */
+    if (!matter_lock_reader_configured() || !aliro_reader_is_running()) {
         groupIdentifier.reduce_size(0);
         return CHIP_NO_ERROR;
     }
@@ -84,6 +98,9 @@ CHIP_ERROR AliroReaderDelegate::GetAliroReaderGroupIdentifier(MutableByteSpan &g
 
 CHIP_ERROR AliroReaderDelegate::GetAliroReaderGroupSubIdentifier(MutableByteSpan &groupSubIdentifier)
 {
+    /* Not nullable, unlike the two above: the spec says this attribute always
+     * has a value, so it answers from the running reader whether or not a
+     * controller has provisioned anything. */
     if (!aliro_reader_is_running()) {
         groupSubIdentifier.reduce_size(0);
         return CHIP_NO_ERROR;
