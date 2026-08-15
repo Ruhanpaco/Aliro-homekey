@@ -27,6 +27,7 @@
 
 #include <esp_log.h>
 #include <lib/support/CodeUtils.h>
+#include <lib/support/TypeTraits.h>
 #include <nvs.h>
 
 #include <stdio.h>

@@ -18,6 +18,7 @@
 #include <app/clusters/door-lock-server/door-lock-server.h>
 #include <app/server/CommissioningWindowManager.h>
 #include <app/server/Server.h>
+#include <lib/support/TypeTraits.h>
 #include <platform/PlatformManager.h>
 #include <setup_payload/OnboardingCodesUtil.h>
 
@@ -37,6 +38,7 @@ static const char *const k_nvs_reader_configured = "aliro_cfg";
 static constexpr uint16_t k_commissioning_window_s = 300;
 
 static matter_lock_hooks_t s_hooks;
+static bool s_hooks_set;
 static uint16_t s_endpoint_id;
 static bool s_running;
 static bool s_reader_configured;
@@ -50,7 +52,15 @@ static char s_qr_url[192];
 
 extern "C" const matter_lock_hooks_t *matter_lock_hooks(void)
 {
-    return s_running ? &s_hooks : nullptr;
+    /*
+     * Keyed on the hooks being set, not on the stack running, and that
+     * distinction matters: emberAfDoorLockClusterInitCallback fires from
+     * inside esp_matter::start(), which is before this file gets to call
+     * itself running. Testing s_running here made the credential store reload
+     * its endpoint keys into a null hook table and drop every one of them --
+     * silently, with the cluster still reporting them as enrolled.
+     */
+    return s_hooks_set ? &s_hooks : nullptr;
 }
 
 extern "C" uint16_t matter_lock_endpoint(void)
@@ -182,6 +192,7 @@ extern "C" esp_err_t matter_lock_start(const matter_lock_hooks_t *hooks)
         return ESP_ERR_INVALID_ARG;
     }
     s_hooks = *hooks;
+    s_hooks_set = true;
 
     load_reader_configured();
 
