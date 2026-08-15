@@ -1255,6 +1255,21 @@ esp_err_t web_server_start(const web_server_hooks_t *hooks)
     cfg.stack_size = 6144;
     cfg.lru_purge_enable = true;
 
+    /*
+     * Fewer than the default seven, because sockets are a system-wide budget
+     * rather than this server's alone. lwIP allows sixteen at most, and in a
+     * Matter build the stack below has already taken several for mDNS, CASE
+     * and commissioning, with the DHCP server and the captive DNS responder
+     * on top. Asking for seven plus a control socket left none, and the whole
+     * server failed to start with ENOBUFS -- which on a device whose only
+     * configuration path is that server means no way in at all.
+     *
+     * This is a single-administrator configuration UI: a browser opens the
+     * page, a WebSocket and perhaps two API calls at once. With lru_purge on,
+     * the oldest idle connection makes way for a new one.
+     */
+    cfg.max_open_sockets = 4;
+
     /* Start capturing before the server does anything worth reading. */
     ESP_ERROR_CHECK_WITHOUT_ABORT(log_ring_init());
 
@@ -1310,7 +1325,15 @@ esp_err_t web_server_start(const web_server_hooks_t *hooks)
         return ESP_ERR_INVALID_STATE;
     }
 
-    ESP_RETURN_ON_ERROR(httpd_start(&s_server, &cfg), k_tag, "httpd_start failed");
+    const esp_err_t httpd_err = httpd_start(&s_server, &cfg);
+    if (httpd_err != ESP_OK) {
+        /* ENOBUFS here is socket exhaustion, not memory. Say so: the generic
+         * message sends people looking at the heap, and the fix is
+         * CONFIG_LWIP_MAX_SOCKETS or fewer sockets asked for above. */
+        ESP_LOGE(k_tag, "httpd_start failed: %s%s", esp_err_to_name(httpd_err),
+                 httpd_err == ESP_ERR_NO_MEM ? " (out of lwIP sockets; raise CONFIG_LWIP_MAX_SOCKETS)" : "");
+        return httpd_err;
+    }
 
     const httpd_uri_t routes[] = {
         /* API endpoints */

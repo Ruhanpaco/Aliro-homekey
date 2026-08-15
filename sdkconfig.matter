@@ -28,6 +28,14 @@ CONFIG_BT_NIMBLE_ROLE_OBSERVER=n
 CONFIG_ENABLE_WIFI_AP=n
 CONFIG_ESP_WIFI_SOFTAP_SUPPORT=y
 
+# Sockets are a system-wide budget and this build has an unusual number of
+# claimants: chip takes several for mDNS, CASE and commissioning, then the
+# SoftAP's DHCP server, the captive DNS responder and the configuration web
+# server all want their own. At the default of 10 the web server lost the
+# race and failed to start with ENOBUFS, leaving a device whose only
+# configuration path is that server. 16 is lwIP's ceiling.
+CONFIG_LWIP_MAX_SOCKETS=16
+
 # Matter is IPv6 end to end, including on Wi-Fi. One link-local address plus
 # one unique local address per fabric.
 CONFIG_LWIP_IPV6_AUTOCONFIG=y
