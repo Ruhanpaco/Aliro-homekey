@@ -906,8 +906,16 @@ static esp_err_t handle_ota_upload(httpd_req_t *req)
         return send_json_response(req, false, NULL, "empty request body", NULL);
     }
 
-    /* Check if enough free heap for OTA operation (need ~50KB) */
-    if (!check_heap_available(51200, "OTA")) {
+    /*
+     * The upload itself needs very little: one 4 kB buffer, plus whatever
+     * esp_ota_begin keeps while it erases the target partition. The 50 kB this
+     * once demanded was a guess made on a build with 270 kB of heap free, and
+     * on the Matter build -- which starts with about 170 kB and hands most of
+     * it to chip, BLE and Wi-Fi -- that guess would refuse every update and
+     * leave a USB cable as the only way back out. Guard against genuine
+     * exhaustion, not against being busy.
+     */
+    if (!check_heap_available(16384, "OTA")) {
         httpd_resp_set_status(req, "507 Insufficient Storage");
         return send_json_response(req, false, NULL, "insufficient heap memory for OTA operation", NULL);
     }
