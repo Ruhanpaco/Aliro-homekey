@@ -35,10 +35,12 @@ static const char *const k_tag = "aliro/web";
 static const size_t k_max_body = 4096;
 static const size_t k_max_ws_payload = 8192;
 
-extern const uint8_t index_html_start[] asm("_binary_index_html_start");
-extern const uint8_t index_html_end[] asm("_binary_index_html_end");
-extern const uint8_t setup_html_start[] asm("_binary_setup_html_start");
-extern const uint8_t setup_html_end[] asm("_binary_setup_html_end");
+/* Embedded gzipped by the component's CMakeLists: ~98 KB of UI becomes ~23 KB
+ * of application partition, and the browser inflates it. */
+extern const uint8_t index_html_start[] asm("_binary_index_html_gz_start");
+extern const uint8_t index_html_end[] asm("_binary_index_html_gz_end");
+extern const uint8_t setup_html_start[] asm("_binary_setup_html_gz_start");
+extern const uint8_t setup_html_end[] asm("_binary_setup_html_gz_end");
 
 static httpd_handle_t s_server;
 static web_server_hooks_t s_hooks;
@@ -484,8 +486,9 @@ static bool in_setup_mode(void)
 static esp_err_t send_page(httpd_req_t *req, const uint8_t *start, const uint8_t *end)
 {
     /* EMBED_FILES stores the file verbatim, with no terminator, so the whole
-     * span between the symbols is page content. */
+     * span between the symbols is page content -- here, gzip. */
     httpd_resp_set_type(req, "text/html");
+    httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
     return httpd_resp_send(req, (const char *)start, end - start);
 }
 

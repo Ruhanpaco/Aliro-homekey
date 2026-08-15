@@ -240,6 +240,27 @@ def check_embedded_symbols() -> None:
             if not any(symbol in s.read_text() for s in sources if "build" not in s.parts):
                 notes.append(f"{cmake.relative_to(ROOT)} embeds {rel}; no source references {symbol}")
 
+        # And the other direction. The forward check above only sees quoted
+        # literals, so a component that builds its EMBED_FILES list in a
+        # variable -- as web_server does, to embed compressed pages -- would
+        # sail past it with no check at all. Work back from the symbols the C
+        # actually declares to a file that could produce them.
+        declared = {re.sub(r"[^\w]", "_", pathlib.Path(r).name) for r in embedded}
+        available = set(declared)
+        for f in base.rglob("*"):
+            if f.is_file() and "build" not in f.parts:
+                stem = re.sub(r"[^\w]", "_", f.name)
+                available.add(stem)
+                available.add(stem + "_gz")  # compressed during the build
+        for src in base.rglob("*.c"):
+            if "build" in src.parts:
+                continue
+            for sym in re.findall(r'asm\("_binary_(\w+?)_(?:start|end)"\)', src.read_text()):
+                if sym not in available:
+                    problems.append(
+                        f"{src.relative_to(ROOT)} declares _binary_{sym}_start "
+                        f"but {cmake.parent.relative_to(ROOT)} embeds no such file")
+
 
 # Symbols only ever read from sdkconfig defaults, never from C.
 DEFAULTS_USED = set(sdkconfig_defaults())
