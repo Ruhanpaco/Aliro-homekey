@@ -912,6 +912,45 @@ main{padding:0 1.5rem 1.5rem;height:100%;overflow-y:auto;background:var(--color-
           <div class="card mt-4">
             <div class="card-body space-y-6">
                 <div>
+                  <h3 class="card-title">Security</h3>
+                  <p class="caption">A username and password for this interface. Without one,
+                  anyone who can reach this address can change the configuration, unlock the
+                  door and install firmware.</p>
+                </div>
+
+              <div class="alert" id="auth_warn">
+                <span class="text-sm">This reader has no login. Anyone on the network can reach
+                  <code>/api/unlock</code> and <code>/api/ota</code>.</span>
+              </div>
+
+              <div class="form-control">
+                <label class="label" for="web_auth_enabled">
+                  <span class="label-text">Require a login</span>
+                  <input id="web_auth_enabled" name="web.auth_enabled" type="checkbox" class="toggle">
+                </label>
+              </div>
+
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="form-control">
+                  <label class="label" for="web_username"><span class="label-text text-sm">Username</span></label>
+                  <input id="web_username" name="web.username" type="text" maxlength="32"
+                         autocomplete="username" class="input input-sm input-bordered w-full">
+                </div>
+                <div class="form-control">
+                  <label class="label" for="web_password"><span class="label-text text-sm">Password</span></label>
+                  <input id="web_password" name="web.password" type="password" placeholder="unchanged"
+                         maxlength="64" autocomplete="new-password" class="input input-sm input-bordered w-full">
+                </div>
+              </div>
+              <p class="text-xs text-muted">At least 8 characters. The browser asks for these on the
+                next request, so keep them somewhere before saving. There is no way in without them
+                except erasing the configuration over USB.</p>
+            </div>
+          </div>
+
+          <div class="card mt-4">
+            <div class="card-body space-y-6">
+                <div>
                   <h3 class="card-title">Maintenance</h3>
                   <p class="caption">Reset erases the stored configuration, including
                   Wi-Fi credentials. The reader comes back on its setup access point.</p>
@@ -1169,6 +1208,7 @@ function load(config) {
       setValue(`${group}.${key}`, value);
   onBusChange();
   onMqttChange();
+  onAuthChange();
 }
 
 function collect() {
@@ -1188,6 +1228,12 @@ function onBusChange() {
   $("spi_fields").classList.toggle("hidden", bus !== "spi");
   $("i2c_fields").classList.toggle("hidden", bus !== "i2c");
   strappingWarning();
+}
+
+function onAuthChange() {
+  /* The warning is the honest state of the device, not a nag: with the toggle
+     off every endpoint below is open to the network. */
+  $("auth_warn").classList.toggle("hidden", $("web_auth_enabled").checked);
 }
 
 function onMqttChange() {
@@ -1302,6 +1348,7 @@ function renderAliro() {
 /* --- wiring ------------------------------------------------------------ */
 
 $("nfc_bus").addEventListener("change", onBusChange);
+$("web_auth_enabled").addEventListener("change", onAuthChange);
 for (const id of ["mqtt_use_ssl","mqtt_allow_insecure","mqtt_base_topic"])
   $(id).addEventListener("input", onMqttChange);
 document.addEventListener("change", (e) => { if (e.target.dataset.pin) strappingWarning(); });

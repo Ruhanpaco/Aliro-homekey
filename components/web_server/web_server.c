@@ -14,6 +14,7 @@
 #include <esp_app_desc.h>
 #include <esp_app_format.h>
 #include <esp_check.h>
+#include <mbedtls/base64.h>
 #include <esp_chip_info.h>
 #include <esp_http_server.h>
 #include <esp_log.h>
@@ -45,62 +46,102 @@ extern const uint8_t setup_html_end[] asm("_binary_setup_html_gz_end");
 static httpd_handle_t s_server;
 static web_server_hooks_t s_hooks;
 
-/* --- Session and Authentication ----------------------------------------- */
+static esp_err_t send_json_response(httpd_req_t *req, bool success, const char *message, const char *error,
+                                    cJSON *data);
 
-typedef struct {
-    uint32_t id;
-    uint64_t created_at;
-    bool authenticated;
-} session_t;
+/* --- Authentication ------------------------------------------------------ */
 
-#define SESSION_TIMEOUT_MS (15 * 60 * 1000)  /* 15 minutes */
-#define MAX_SESSIONS 8
-static session_t s_sessions[MAX_SESSIONS];
-static SemaphoreHandle_t s_sessions_mutex = NULL;
+/*
+ * HTTP Basic, which is what the configuration struct has always described.
+ *
+ * The browser owns the prompt, so this costs no JavaScript and works inside a
+ * captive-portal window, where a login page and a cookie do not. What replaced
+ * here was a session table that nothing ever called: tokens minted from
+ * (index * 12345 + uptime), which is guessable, handed out by a function no
+ * handler invoked. Dead code that looks like security is worse than none,
+ * because it reads as though the question was settled.
+ *
+ * Over plain HTTP the credentials are visible to anyone already watching the
+ * network, exactly as a session cookie would be. This raises the bar from
+ * "anyone who can reach the device" to "anyone who can also observe its
+ * traffic"; TLS is what raises it further, and this device has no certificate.
+ */
 
-static uint32_t session_create(void)
+/** @brief Compare without leaking where two strings first differ. */
+static bool constant_time_equal(const char *a, const char *b, size_t len)
 {
-    if (xSemaphoreTake(s_sessions_mutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
-        return 0;
+    unsigned char diff = 0;
+    for (size_t i = 0; i < len; i++) {
+        diff |= (unsigned char)a[i] ^ (unsigned char)b[i];
     }
-
-    uint32_t now_ms = esp_timer_get_time() / 1000;
-    for (size_t i = 0; i < MAX_SESSIONS; i++) {
-        if (s_sessions[i].created_at == 0 || (now_ms - s_sessions[i].created_at) > SESSION_TIMEOUT_MS) {
-            s_sessions[i].id = (i + 1) * 12345 + (now_ms & 0xFFFF);
-            s_sessions[i].created_at = now_ms;
-            s_sessions[i].authenticated = false;
-            xSemaphoreGive(s_sessions_mutex);
-            return s_sessions[i].id;
-        }
-    }
-
-    xSemaphoreGive(s_sessions_mutex);
-    return 0;
+    return diff == 0;
 }
 
-static bool session_is_valid(uint32_t session_id)
+static bool request_is_authorised(httpd_req_t *req)
 {
-    if (session_id == 0) {
+    const app_config_t *cfg = app_config_get();
+    if (!cfg->web.auth_enabled) {
+        return true;
+    }
+
+    /* What the header should read, built from the stored credentials rather
+     * than decoding what arrived: one direction, no attacker-sized buffers. */
+    char pair[sizeof(cfg->web.username) + sizeof(cfg->web.password) + 2];
+    const int pair_len = snprintf(pair, sizeof(pair), "%s:%s", cfg->web.username, cfg->web.password);
+
+    unsigned char expected[((sizeof(pair) + 2) / 3) * 4 + 1];
+    size_t expected_len = 0;
+    const bool encoded = pair_len > 0 &&
+                         mbedtls_base64_encode(expected, sizeof(expected), &expected_len,
+                                               (const unsigned char *)pair, (size_t)pair_len) == 0;
+    memset(pair, 0, sizeof(pair));
+    if (!encoded) {
         return false;
     }
 
-    if (xSemaphoreTake(s_sessions_mutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
-        return false;
-    }
+    const size_t header_len = httpd_req_get_hdr_value_len(req, "Authorization");
+    bool ok = false;
 
-    uint32_t now_ms = esp_timer_get_time() / 1000;
-    for (size_t i = 0; i < MAX_SESSIONS; i++) {
-        if (s_sessions[i].id == session_id && (now_ms - s_sessions[i].created_at) <= SESSION_TIMEOUT_MS) {
-            s_sessions[i].created_at = now_ms; /* Refresh expiry */
-            xSemaphoreGive(s_sessions_mutex);
-            return true;
+    /* "Basic " plus the encoding of a username and password we know the size
+     * of. Anything longer cannot match, and is not worth allocating for. */
+    if (header_len > 6 && header_len < sizeof(expected) + 8) {
+        char header[sizeof(expected) + 8];
+        if (httpd_req_get_hdr_value_str(req, "Authorization", header, sizeof(header)) == ESP_OK &&
+            strncmp(header, "Basic ", 6) == 0 && strlen(header + 6) == expected_len) {
+            ok = constant_time_equal(header + 6, (const char *)expected, expected_len);
         }
+        memset(header, 0, sizeof(header));
     }
 
-    xSemaphoreGive(s_sessions_mutex);
-    return false;
+    memset(expected, 0, sizeof(expected));
+    return ok;
 }
+
+/**
+ * @brief Gate a handler. Returns ESP_OK when the request may proceed.
+ *
+ * On refusal the 401 has already been sent, and the socket is deliberately
+ * left open: the browser needs it to retry with credentials.
+ */
+static esp_err_t require_auth(httpd_req_t *req)
+{
+    if (request_is_authorised(req)) {
+        return ESP_OK;
+    }
+
+    httpd_resp_set_status(req, "401 Unauthorized");
+    httpd_resp_set_hdr(req, "WWW-Authenticate", "Basic realm=\"Aliro HomeKey\"");
+    send_json_response(req, false, NULL, "authentication required", NULL);
+    return ESP_FAIL;
+}
+
+/** @brief Leave the handler if the request is not authorised. */
+#define REQUIRE_AUTH(req)                                                                                              \
+    do {                                                                                                               \
+        if (require_auth(req) != ESP_OK) {                                                                             \
+            return ESP_OK;                                                                                             \
+        }                                                                                                              \
+    } while (0)
 
 /* --- Event Publishing ---------------------------------------------------- */
 
@@ -494,11 +535,13 @@ static esp_err_t send_page(httpd_req_t *req, const uint8_t *start, const uint8_t
 
 static esp_err_t handle_setup(httpd_req_t *req)
 {
+    REQUIRE_AUTH(req);
     return send_page(req, setup_html_start, setup_html_end);
 }
 
 static esp_err_t handle_index(httpd_req_t *req)
 {
+    REQUIRE_AUTH(req);
     /*
      * A device still on its own access point has exactly one useful thing to
      * offer, so offer only that. The full configuration UI assumes a real
@@ -515,6 +558,7 @@ static esp_err_t handle_index(httpd_req_t *req)
 
 static esp_err_t handle_get_status(httpd_req_t *req)
 {
+    REQUIRE_AUTH(req);
     esp_chip_info_t chip;
     esp_chip_info(&chip);
     const esp_app_desc_t *app = esp_app_get_description();
@@ -583,6 +627,7 @@ static esp_err_t handle_get_status(httpd_req_t *req)
 
 static esp_err_t handle_get_hardware(httpd_req_t *req)
 {
+    REQUIRE_AUTH(req);
     char *hw_json = app_config_hardware_caps_json();
     cJSON *data = cJSON_Parse(hw_json);
     if (!data) {
@@ -596,6 +641,7 @@ static esp_err_t handle_get_hardware(httpd_req_t *req)
 
 static esp_err_t handle_get_config(httpd_req_t *req)
 {
+    REQUIRE_AUTH(req);
     char *cfg_json = app_config_to_json(app_config_get(), false);
     cJSON *data = cJSON_Parse(cfg_json);
     if (!data) {
@@ -609,6 +655,7 @@ static esp_err_t handle_get_config(httpd_req_t *req)
 
 static esp_err_t handle_post_config(httpd_req_t *req)
 {
+    REQUIRE_AUTH(req);
     char *body = read_body(req);
     if (!body) {
         httpd_resp_set_status(req, "400 Bad Request");
@@ -696,6 +743,7 @@ static esp_err_t handle_post_config(httpd_req_t *req)
 
 static esp_err_t handle_post_config_reset(httpd_req_t *req)
 {
+    REQUIRE_AUTH(req);
     if (app_config_reset() != ESP_OK) {
         httpd_resp_set_status(req, "500 Internal Server Error");
         return send_json_response(req, false, NULL, "could not erase configuration", NULL);
@@ -707,6 +755,7 @@ static esp_err_t handle_post_config_reset(httpd_req_t *req)
 
 static esp_err_t handle_post_unlock(httpd_req_t *req)
 {
+    REQUIRE_AUTH(req);
     if (!s_hooks.unlock) {
         httpd_resp_set_status(req, "500 Internal Server Error");
         return send_json_response(req, false, NULL, "no lock output configured", NULL);
@@ -730,6 +779,7 @@ static esp_err_t handle_post_unlock(httpd_req_t *req)
 
 static esp_err_t handle_post_matter_pair(httpd_req_t *req)
 {
+    REQUIRE_AUTH(req);
     /*
      * Only useful on a device that has already been commissioned once: an
      * uncommissioned one advertises on its own from boot. This is how a second
@@ -759,6 +809,7 @@ static void reboot_task(void *params)
 
 static esp_err_t handle_post_reboot(httpd_req_t *req)
 {
+    REQUIRE_AUTH(req);
     cJSON *data = cJSON_CreateObject();
     cJSON_AddNumberToObject(data, "reboot_delay_ms", 500);
     const esp_err_t err = send_json_response(req, true, "Device rebooting", NULL, data);
@@ -772,6 +823,7 @@ static esp_err_t handle_ws_post_handshake(httpd_req_t *req);
 
 static esp_err_t handle_websocket(httpd_req_t *req)
 {
+    REQUIRE_AUTH(req);
     if (req->method == HTTP_GET) {
         ESP_LOGI(k_tag, "WebSocket handshake from fd=%d", httpd_req_to_sockfd(req));
         /* ESP-IDF has no post-handshake callback on httpd_uri_t (5.4 and 5.5
@@ -872,6 +924,7 @@ static void ota_task(void *arg)
 
 static esp_err_t handle_ota_upload(httpd_req_t *req)
 {
+    REQUIRE_AUTH(req);
     if (req->content_len == 0) {
         httpd_resp_set_status(req, "400 Bad Request");
         return send_json_response(req, false, NULL, "empty request body", NULL);
@@ -1088,6 +1141,7 @@ static esp_err_t handle_captive_portal_redirect(httpd_req_t *req)
 
 static esp_err_t handle_wifi_scan(httpd_req_t *req)
 {
+    REQUIRE_AUTH(req);
     net_scan_result_t *found = calloc(WIFI_SCAN_MAX, sizeof(*found));
     if (!found) {
         httpd_resp_set_status(req, "500 Internal Server Error");
@@ -1125,6 +1179,7 @@ static esp_err_t handle_wifi_scan(httpd_req_t *req)
  */
 static esp_err_t handle_wifi_reconnect(httpd_req_t *req)
 {
+    REQUIRE_AUTH(req);
     char ip[16] = {0};
     const esp_err_t err = net_manager_reconnect(12000, ip, sizeof(ip));
 
@@ -1152,6 +1207,7 @@ static esp_err_t handle_wifi_reconnect(httpd_req_t *req)
  */
 static esp_err_t handle_wifi_connect(httpd_req_t *req)
 {
+    REQUIRE_AUTH(req);
     char *body = read_body(req);
     if (!body) {
         httpd_resp_set_status(req, "400 Bad Request");
@@ -1251,15 +1307,6 @@ esp_err_t web_server_start(const web_server_hooks_t *hooks)
         ESP_LOGE(k_tag, "Failed to create WebSocket mutex");
         return ESP_ERR_NO_MEM;
     }
-
-    /* Initialize session management */
-    s_sessions_mutex = xSemaphoreCreateMutex();
-    if (!s_sessions_mutex) {
-        ESP_LOGE(k_tag, "Failed to create sessions mutex");
-        vSemaphoreDelete(s_ws_clients_mutex);
-        return ESP_ERR_NO_MEM;
-    }
-    memset(s_sessions, 0, sizeof(s_sessions));
 
     /* Initialize WebSocket client registry */
     for (size_t i = 0; i < WS_MAX_CLIENTS; i++) {
@@ -1397,12 +1444,6 @@ esp_err_t web_server_stop(void)
     if (s_ws_clients_mutex) {
         vSemaphoreDelete(s_ws_clients_mutex);
         s_ws_clients_mutex = NULL;
-    }
-
-    /* Delete sessions mutex */
-    if (s_sessions_mutex) {
-        vSemaphoreDelete(s_sessions_mutex);
-        s_sessions_mutex = NULL;
     }
 
     return err;

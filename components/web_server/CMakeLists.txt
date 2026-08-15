@@ -40,7 +40,7 @@ endif()
 idf_component_register(SRCS         "web_server.c"
                        INCLUDE_DIRS "include"
                        REQUIRES     app_config net_manager matter_lock
-                       PRIV_REQUIRES esp_http_server json esp_app_format esp_hw_support
+                       PRIV_REQUIRES esp_http_server json esp_app_format esp_hw_support mbedtls
                                      esp_timer esp_system freertos
                                      app_update esp_partition esp_wifi
                        EMBED_FILES  ${_embed_files})
