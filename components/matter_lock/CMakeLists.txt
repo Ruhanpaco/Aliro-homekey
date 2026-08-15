@@ -16,11 +16,23 @@ if(DEFINED ENV{ESP_MATTER_PATH})
     list(APPEND _requires esp_matter chip)
 endif()
 
+# WHOLE_ARCHIVE because the dependency here is a cycle the linker cannot walk.
+# We call into esp_matter, and esp_matter's door lock cluster calls back into
+# emberAfDoorLockClusterInitCallback, which lives here. Archives are scanned in
+# order and only for symbols already undefined, so the real sequence was: this
+# archive scanned with nothing yet wanting it, then main pulls in
+# matter_lock_start, which pulls in esp_matter, whose cluster table then wants
+# our callback -- from a position the linker has already gone past.
+#
+#     undefined reference to `_Z34emberAfDoorLockClusterInitCallbackt'
+#
+# Espressif's example never meets this because its callbacks sit in main.
 idf_component_register(SRCS         "matter_lock.cpp" "matter_aliro_delegate.cpp" "matter_lock_store.cpp"
                                     "matter_lock_disabled.c"
                        INCLUDE_DIRS "include"
                        REQUIRES     ${_requires}
-                       PRIV_REQUIRES nvs_flash)
+                       PRIV_REQUIRES nvs_flash
+                       WHOLE_ARCHIVE)
 
 # CHIP_HAVE_CONFIG_H is how the Matter headers find their generated
 # configuration. -Wno-overloaded-virtual because the Door Lock server
