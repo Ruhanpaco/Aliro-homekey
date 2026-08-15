@@ -65,16 +65,24 @@ GPIO fires.
 Today credentials are compiled in. Next: persist them in NVS, add and revoke
 them at runtime, and log every tap with its outcome.
 
-This is also where the **hard unknown** sits: how a real wallet ends up holding
-a credential for this reader. Provisioning is an ecosystem process — a
-certified reader, a CA-issued reader certificate, and a path for the wallet to
-be issued a key. Espressif's SDK deliberately stops at the transaction and
-leaves the credential lifecycle to the product. Until that is understood, this
-project is testable against the CSA `aliro-actuator` reference implementation
-(access by application to the CSA) and against test credentials, not against a
-phone.
+This is also where the **hard unknown** sat: how a real wallet ends up holding
+a credential for this reader. Espressif's SDK deliberately stops at the
+transaction and leaves the credential lifecycle to the product.
 
-Be honest about this in the README rather than discovering it at milestone 6.
+Most of that is now answered, and the answer is Matter. The Door Lock cluster
+(`0x0101`) carries the Aliro provisioning feature and nothing else does:
+`SetAliroReaderConfig` gives the lock its reader key pair, and `SetCredential`
+with an Aliro endpoint key enrolls a phone. `components/matter_lock` implements
+that side, so a controller can drive the whole lifecycle over the standard
+path. Credentials provisioned this way persist in NVS and are re-enrolled at
+boot.
+
+What is still not solved is **attestation**. Commissioning requires a device
+attestation certificate chaining to a CSA-recognised root, which is issued as
+part of certification. With esp-matter's test credentials this commissions with
+`chip-tool` and Home Assistant and refuses to commission with Apple, Google or
+Samsung. That is the remaining gap between "a phone can hold a key for this
+reader" and "a phone you own can", and it is paperwork rather than code.
 
 ## Milestone 4 — protocol depth
 
@@ -102,7 +110,9 @@ the standard is interesting long-term. `esp_aliro_lib` is NFC-only today.
 ## Open questions
 
 1. Which NFC frontend, and does the cheapest option meet Aliro's timing?
-2. What exactly does credential provisioning require outside the firmware?
+2. ~~What exactly does credential provisioning require outside the firmware?~~
+   A Matter controller and, for the phone ecosystems specifically, a device
+   attestation certificate that only comes with certification. See milestone 3.
 3. Where does the reader private key live in a build meant for a real door —
    flash encryption, the DS peripheral, or an external secure element?
 4. Does anything here need certification to be lawful to publish and use? (The
