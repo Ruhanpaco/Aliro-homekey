@@ -1052,7 +1052,7 @@ const $ = (id) => document.getElementById(id);
 const PAGES = {info:"Info", mqtt:"MQTT", actions:"Actions", misc:"System",
                ota:"OTA Update"};
 let caps = null;
-let ws = null, wsReconnectTimer = null;
+let ws = null, wsReconnectTimer = null, wsBackoffMs = 1500;
 
 /* --- WebSocket support ------------------------------------------------- */
 
@@ -1066,6 +1066,7 @@ function connectWebSocket() {
   ws.addEventListener("open", () => {
     console.log("WebSocket connected");
     clearTimeout(wsReconnectTimer);
+    wsBackoffMs = 1500; /* a clean connection earns a fast retry next time */
     // Send ping to keep connection alive
     const ping = setInterval(() => {
       if (ws && ws.readyState === WebSocket.OPEN) {
@@ -1097,9 +1098,16 @@ function connectWebSocket() {
   });
 
   ws.addEventListener("close", () => {
-    console.log("WebSocket disconnected, will reconnect in 3s");
     if (ws.pingInterval) clearInterval(ws.pingInterval);
-    wsReconnectTimer = setTimeout(connectWebSocket, 3000);
+    /* Backing off rather than retrying flat, because a close is not always
+       temporary: with a login configured, a browser that does not replay its
+       credentials on the handshake is refused every time, and a fixed 3 s
+       retry becomes a permanent connect-and-401 loop against a device with
+       four HTTP sockets. Capped so a reboot is still picked up promptly.
+       Live updates are the only casualty -- status polls on its own. */
+    wsBackoffMs = Math.min(wsBackoffMs * 2, 30000);
+    console.log(`WebSocket disconnected, retrying in ${wsBackoffMs / 1000}s`);
+    wsReconnectTimer = setTimeout(connectWebSocket, wsBackoffMs);
   });
 
   ws.addEventListener("error", (event) => {
