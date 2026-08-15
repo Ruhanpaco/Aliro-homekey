@@ -36,8 +36,30 @@ jobs:
           # The stock defaults are already Wi-Fi plus BLE for commissioning.
           # Aliro is a separate switch, so this is the untried combination:
           # their Aliro configs turn Wi-Fi off and OpenThread on.
-          echo "CONFIG_ENABLE_ALIRO_OVER_NFC=y" > sdkconfig.probe
-          echo "CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y" >> sdkconfig.probe
+          cat > sdkconfig.probe <<'CFG'
+          CONFIG_ENABLE_ALIRO_OVER_NFC=y
+          CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+
+          # The first attempt overflowed IRAM by 5,680 bytes on the ESP32.
+          # Flash was never the problem: the classic ESP32 has a hard ~128 KB
+          # instruction-RAM window and Wi-Fi and BLE both want to live in it.
+          # Everything below either shrinks code or moves it out to flash.
+          # Espressif's own Aliro config carries the first three; the Wi-Fi
+          # IRAM options are the ones that actually free the space, at the cost
+          # of throughput nobody needs on a door lock.
+          CONFIG_COMPILER_OPTIMIZATION_SIZE=y
+          CONFIG_COMPILER_OPTIMIZATION_ASSERTIONS_SILENT=y
+          CONFIG_COMPILER_SAVE_RESTORE_LIBCALLS=y
+          CONFIG_ESP_WIFI_IRAM_OPT=n
+          CONFIG_ESP_WIFI_RX_IRAM_OPT=n
+          CONFIG_FREERTOS_PLACE_FUNCTIONS_INTO_FLASH=y
+          CONFIG_SPI_FLASH_ROM_IMPL=y
+
+          # BLE is only used to hand over Wi-Fi credentials at commissioning,
+          # so it never needs to scan or act as a client.
+          CONFIG_BT_NIMBLE_ROLE_CENTRAL=n
+          CONFIG_BT_NIMBLE_ROLE_OBSERVER=n
+          CFG
 
           idf.py -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.probe" \
                  set-target ${{ matrix.target }} build 2>&1 | tail -40
