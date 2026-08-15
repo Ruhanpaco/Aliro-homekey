@@ -43,9 +43,11 @@ CONFIG_ENABLE_CHIP_SHELL=n
 CONFIG_CHIP_ENABLE_BDX_LOG_TRANSFER=n
 CONFIG_SUPPORT_GROUPCAST_CLUSTER=n
 
-# One endpoint: the door lock. (Endpoint 0 is the root node and does not
-# count against this.)
-CONFIG_ESP_MATTER_MAX_DYNAMIC_ENDPOINT_COUNT=1
+# Two: the root node on endpoint 0, and the door lock. The root node *does*
+# count against this -- setting it to 1 leaves no room for the lock itself, and
+# is also what made esp_matter_bridge fail to compile with a negative array
+# size, since it derives its own limit by subtracting the root endpoint.
+CONFIG_ESP_MATTER_MAX_DYNAMIC_ENDPOINT_COUNT=2
 CONFIG_ESP_MATTER_NVS_USE_COMPACT_ATTR_STORAGE=y
 
 # --- Crypto ----------------------------------------------------------------
