@@ -171,6 +171,12 @@ board, so stored Wi-Fi credentials and the reader identity go with it.
 
 Work through it in this order, because each step gates the next.
 
+**There is no `aliro>` prompt in this build.** The console is deliberately off:
+starting it moves stdout onto the driver-based UART VFS, and with chip, NimBLE
+and Wi-Fi all logging at once that deadlocks against the UART mutex and panics.
+The serial port still prints the log, it just does not take commands — use the
+web UI, which has everything the console offered.
+
 **a. The boot log.** Three lines appear that the ordinary build never prints:
 
 ```text
@@ -207,6 +213,17 @@ restarts on the new identity and the card shows "Provisioned".
 They require a device attestation certificate chaining to a root on the CSA's
 compliance ledger, which comes with certification; this image carries
 esp-matter's test credentials. `chip-tool` and Home Assistant accept those.
+
+**If it panics.** This build strips assert messages to save flash, so a crash
+prints bare addresses. The workflow attaches `aliro_homekey.elf`; feed it and
+the backtrace to the decoder, which needs no toolchain:
+
+```bash
+tools/decode_backtrace.py aliro_homekey.elf < crash.txt
+```
+
+Check that the `ELF file SHA256` the panic prints matches the ELF you decode
+against — a different build of the same source answers confidently and wrongly.
 
 ## What this test does and does not prove
 
