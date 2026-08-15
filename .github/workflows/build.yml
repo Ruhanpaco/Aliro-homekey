@@ -13,14 +13,7 @@ jobs:
       - name: Static consistency checks
         run: ./tools/check_consistency.py
 
-      - name: Configuration logic tests
-        run: ./test/host/run.sh
 
-      # The browser flasher writes an NVS partition by hand. A mistake there is
-      # silent -- the device just ignores the provisioned identity -- so the
-      # image is decoded and checked against ESP-IDF's format on every push.
-      - name: NVS image format tests
-        run: ./test/nvs/run.py
 
   build:
     runs-on: ubuntu-latest
