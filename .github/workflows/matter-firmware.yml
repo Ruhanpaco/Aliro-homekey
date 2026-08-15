@@ -111,10 +111,14 @@ jobs:
           # @flash_args carries the offsets the build actually chose, so the
           # merged image cannot drift from the real partition layout.
           python -m esptool --chip ${{ inputs.target }} merge_bin \
-              -o "$out/${{ inputs.target }}.matter.factory.bin" -f raw \
+              -o "$out/${{ inputs.target }}.matter.firmware.factory.bin" -f raw \
               --fill-flash-size 4MB @flash_args
-          cp door_lock.bin "$out/${{ inputs.target }}.matter.bin"
+          cp door_lock.bin "$out/${{ inputs.target }}.matter.firmware.bin"
 
+          echo "=== what these are ==="
+          echo "  <target>.matter.firmware.factory.bin  USB, offset 0x0   fresh board, wipes everything"
+          echo "  <target>.matter.firmware.bin          USB, offset 0x20000  app only, keeps commissioning"
+          echo
           echo "=== sizes ==="
           ls -l "$out"
           echo
