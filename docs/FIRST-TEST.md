@@ -171,6 +171,17 @@ board, so stored Wi-Fi credentials and the reader identity go with it.
 
 Work through it in this order, because each step gates the next.
 
+**Setup takes two boots, by design.** A board with no stored Wi-Fi credentials
+runs the setup portal and nothing else — no Matter, no BLE, no mDNS. There is
+not enough memory on an ESP32 for the Matter stack alongside a SoftAP, its DHCP
+server and a captive DNS responder, and the symptom when you try is the web
+server failing to start, which leaves an access point serving nothing at all.
+
+So the first boot gives you the portal; entering Wi-Fi credentials restarts the
+device; the second boot joins the network and starts Matter. Until that restart
+the dashboard has no Matter card and the log has no `MT:` payload, and that is
+correct rather than broken.
+
 **There is no `aliro>` prompt in this build.** The console is deliberately off:
 starting it moves stdout onto the driver-based UART VFS, and with chip, NimBLE
 and Wi-Fi all logging at once that deadlocks against the UART mutex and panics.
