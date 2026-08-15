@@ -74,6 +74,12 @@ CONFIG_SPI_FLASH_ROM_IMPL=y
 CONFIG_ESP_SYSTEM_EVENT_TASK_STACK_SIZE=4096
 CONFIG_FREERTOS_HZ=1000
 
+# app_main brings the whole Matter stack up on its own stack, on top of
+# everything the ordinary build already does there. That build reported 4596
+# bytes of 8192 still free; this one has no such margin to report, because it
+# panicked before it got that far.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=12288
+
 # Deeper than esp-matter's own examples need, because commands land on this
 # task and two of ours are expensive: SetCredential parses a PEM and derives a
 # key slot (mbedTLS parse plus a PSA import), and SetAliroReaderConfig converts

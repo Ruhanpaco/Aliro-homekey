@@ -230,27 +230,44 @@ extern "C" esp_err_t matter_lock_start(const matter_lock_hooks_t *hooks)
 
     cluster_t *lock_cluster = cluster::get(endpoint, Id);
 
-    /* Aliro provisioning depends on the user feature: an endpoint key is
-     * always a credential belonging to a user. */
-    cluster::door_lock::feature::user::config_t user_config;
-    cluster::door_lock::feature::user::add(lock_cluster, &user_config);
-
     /*
-     * PIN and credential-over-the-air are what every shipping lock advertises,
-     * and controllers are noticeably happier with them present. The one change
-     * from the defaults is that a remote unlock does not demand a PIN -- there
-     * is no keypad on this device, and a controller that has been commissioned
-     * into the fabric has already proved more than a PIN would.
+     * Order is load-bearing, and it is not obvious. esp-matter refuses to add
+     * the user feature unless a credential type is already present:
+     *
+     *     E esp_matter_feature: Should add at least one of PIN, RID, FGP and
+     *                           FACE feature before add USR feature
+     *
+     * That refusal is a log line, not a return this code can trip over, so
+     * with these three calls the other way round the lock came up looking
+     * healthy while quietly missing USR -- and Aliro provisioning is defined
+     * in terms of users, so it would have taken the whole feature down with
+     * it. Credentials first, then users, then Aliro on top of both.
+     *
+     * The one change from esp-matter's defaults is that a remote unlock does
+     * not demand a PIN: there is no keypad on this device, and a controller
+     * that has been commissioned into the fabric has already proved more than
+     * a PIN would.
      */
     cluster::door_lock::feature::pin_credential::config_t pin_config;
     pin_config.require_pin_for_remote_operation = false;
-    cluster::door_lock::feature::pin_credential::add(lock_cluster, &pin_config);
+    if (cluster::door_lock::feature::pin_credential::add(lock_cluster, &pin_config) != ESP_OK) {
+        ESP_LOGE(k_tag, "PIN credential feature refused");
+    }
 
     cluster::door_lock::feature::credential_over_the_air_access::config_t cota_config;
     cota_config.require_pin_for_remote_operation = false;
-    cluster::door_lock::feature::credential_over_the_air_access::add(lock_cluster, &cota_config);
+    if (cluster::door_lock::feature::credential_over_the_air_access::add(lock_cluster, &cota_config) != ESP_OK) {
+        ESP_LOGE(k_tag, "credential-over-the-air feature refused");
+    }
 
-    cluster::door_lock::feature::aliro_provisioning::add(lock_cluster);
+    cluster::door_lock::feature::user::config_t user_config;
+    if (cluster::door_lock::feature::user::add(lock_cluster, &user_config) != ESP_OK) {
+        ESP_LOGE(k_tag, "user feature refused; Aliro provisioning will not work");
+    }
+
+    if (cluster::door_lock::feature::aliro_provisioning::add(lock_cluster) != ESP_OK) {
+        ESP_LOGE(k_tag, "Aliro provisioning feature refused; no controller can provision this reader");
+    }
 
     s_endpoint_id = endpoint::get_id(endpoint);
 
