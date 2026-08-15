@@ -162,15 +162,62 @@ Until Wi-Fi credentials exist, the reader runs its own access point:
 After `wifi <ssid> <password>` and a restart, it joins your network instead and
 prints its address in the boot log.
 
+## 7. The Matter build
+
+A second image, built by the `matter-firmware` workflow, is the same firmware
+with the Matter door lock endpoint switched on. Flash
+`esp32.matter.firmware.factory.bin` at `0x0` exactly as above — it wipes the
+board, so stored Wi-Fi credentials and the reader identity go with it.
+
+Work through it in this order, because each step gates the next.
+
+**a. The boot log.** Three lines appear that the ordinary build never prints:
+
+```text
+aliro/matter: commissioning payload: MT:...
+aliro/matter: manual pairing code:   ...
+aliro/matter: door lock on endpoint 1, 0 fabric(s)
+```
+
+If those are there, the stack came up and found its commissioning data.
+
+**b. The web UI.** This is the real thing under test, not Matter. In this build
+the Matter stack initialises `esp_netif` and the Wi-Fi driver, and `net_manager`
+joins what is already running rather than creating its own. If that handover is
+wrong, the symptom is the setup portal or the dashboard never appearing — so
+check it before anything else, and keep the USB cable attached, because a board
+with no UI and no network is one you reflash rather than fix.
+
+The dashboard gains a **Matter** card showing the pairing code and whether a
+controller has provisioned a reader identity.
+
+**c. Commissioning.** With `chip-tool`:
+
+```bash
+chip-tool pairing ble-wifi 1 "<ssid>" "<password>" 20202021 3840
+```
+
+The card should move to "Commissioned (1)".
+
+**d. Provisioning.** `SetAliroReaderConfig` hands the lock a reader key pair,
+then `SetCredential` with an Aliro endpoint key enrols a phone. The reader
+restarts on the new identity and the card shows "Provisioned".
+
+**What this cannot do yet:** Apple, Google and Samsung refuse to commission it.
+They require a device attestation certificate chaining to a root on the CSA's
+compliance ledger, which comes with certification; this image carries
+esp-matter's test credentials. `chip-tool` and Home Assistant accept those.
+
 ## What this test does and does not prove
 
 **Proves:** the firmware builds, boots, persists configuration, brings up
 Wi-Fi in both modes, serves the UI, drives the lock output, and accepts
 console commands.
 
-**Does not prove anything about Aliro.** There is no NFC chip driver yet, so no
-card is ever detected and no transaction ever runs. That is
-[Milestone 2](ROADMAP.md).
+**Says nothing about a real tap.** The PN532 driver has never run against
+silicon, and neither has the Aliro transaction on this hardware. A board with
+no reader wired up still boots and still serves its UI; it just never sees a
+card.
 
 ## If it does not boot
 
