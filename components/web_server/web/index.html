@@ -416,15 +416,6 @@ main{padding:0 1.5rem 1.5rem;height:100%;overflow-y:auto;background:var(--color-
               </svg>OTA Update
             </a>
           </li>
-          <li class="my-1" role="menuitem">
-            <a href="#/logs" data-page="logs" class="text-lg flex items-center">
-              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none"
-                   viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                <path stroke-linecap="round" stroke-linejoin="round"
-                      d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-              </svg>Logs
-            </a>
-          </li>
         </ul>
 
         <div class="divider"></div>
@@ -1004,23 +995,6 @@ main{padding:0 1.5rem 1.5rem;height:100%;overflow-y:auto;background:var(--color-
           </div>
         </div>
 
-        <!-- ------------------------------------------------------ Logs -->
-        <div class="page" data-page="logs">
-          <div class="page-head">
-            <h1>Logs</h1>
-            <p>The device log, polled from a ring buffer on the reader.</p>
-          </div>
-          <div class="flex items-center gap-3 mb-4 flex-wrap">
-            <label class="label" for="log_follow">
-              <input id="log_follow" type="checkbox" class="checkbox" checked>
-              <span class="label-text text-sm">Follow</span>
-            </label>
-            <button type="button" class="btn btn-sm btn-outline" id="log_clear">Clear</button>
-            <span class="text-xs text-muted" id="log_count"></span>
-          </div>
-          <div class="mockup-code" id="log_view"><div class="text-muted">Waiting for output…</div></div>
-        </div>
-
         <form id="form" class="savebar">
           <button type="submit" class="btn btn-primary" id="save">Save Configuration</button>
           <span class="text-sm text-muted">Stored immediately, applied on the next restart.</span>
@@ -1037,9 +1011,8 @@ main{padding:0 1.5rem 1.5rem;height:100%;overflow-y:auto;background:var(--color-
 "use strict";
 const $ = (id) => document.getElementById(id);
 const PAGES = {info:"Info", mqtt:"MQTT", actions:"Actions", misc:"System",
-               ota:"OTA Update", logs:"Logs"};
+               ota:"OTA Update"};
 let caps = null;
-let logSince = 0, logLines = [], logTimer = null;
 let ws = null, wsReconnectTimer = null;
 
 /* --- WebSocket support ------------------------------------------------- */
@@ -1126,7 +1099,6 @@ function route() {
   document.title = page === "info" ? "Aliro HomeKey" : `${PAGES[page]} — Aliro HomeKey`;
   $("main-content-drawer").checked = false;
   $("main-content").scrollTop = 0;
-  if (page === "logs") startLogs(); else stopLogs();
 }
 window.addEventListener("hashchange", route);
 // Form-state restoration runs after this script and re-opens the drawer, and
@@ -1326,41 +1298,6 @@ function renderAliro() {
     ["Unlock", `${cfg.lock.unlock_ms} ms`],
   ]);
 }
-
-/* --- logs -------------------------------------------------------------- */
-
-const escapeHtml = (s) => s.replace(/[&<>]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
-
-async function pollLogs() {
-  try {
-    const data = await api(`/api/logs?since=${logSince}`);
-    logSince = data.next;
-    if (data.lines.length) {
-      logLines.push(...data.lines.map((l) => l.text));
-      logLines = logLines.slice(-400);
-      const view = $("log_view");
-      view.innerHTML = logLines.map((line) => `<div>${escapeHtml(line)}</div>`).join("");
-      if ($("log_follow").checked) view.scrollTop = view.scrollHeight;
-    }
-    $("log_count").textContent = `${logLines.length} line${logLines.length === 1 ? "" : "s"}`;
-  } catch { /* the device may be rebooting */ }
-}
-
-function startLogs() {
-  if (logTimer) return;
-  pollLogs();
-  logTimer = setInterval(pollLogs, 1500);
-}
-function stopLogs() {
-  clearInterval(logTimer);
-  logTimer = null;
-}
-
-$("log_clear").addEventListener("click", () => {
-  logLines = [];
-  $("log_view").innerHTML = '<div class="text-muted">Cleared.</div>';
-  $("log_count").textContent = "";
-});
 
 /* --- wiring ------------------------------------------------------------ */
 

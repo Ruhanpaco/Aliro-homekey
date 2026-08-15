@@ -6,8 +6,6 @@
 
 #include "web_server.h"
 
-#include "log_ring.h"
-
 #include "app_config.h"
 #include "matter_lock.h"
 #include "net_manager.h"
@@ -707,33 +705,6 @@ static esp_err_t handle_post_config_reset(httpd_req_t *req)
     return send_json_response(req, true, "Configuration reset, device rebooting", NULL, data);
 }
 
-static esp_err_t handle_get_logs(httpd_req_t *req)
-{
-    uint32_t since = 0;
-    char query[48];
-    if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
-        char value[16];
-        if (httpd_query_key_value(query, "since", value, sizeof(value)) == ESP_OK) {
-            since = (uint32_t)strtoul(value, NULL, 10);
-        }
-    }
-
-    static log_line_t lines[32];
-    const size_t count = log_ring_copy_since(since, lines, sizeof(lines) / sizeof(lines[0]));
-
-    cJSON *data = cJSON_CreateObject();
-    cJSON_AddNumberToObject(data, "next", log_ring_next_id());
-    cJSON *array = cJSON_AddArrayToObject(data, "lines");
-    for (size_t i = 0; i < count; i++) {
-        cJSON *entry = cJSON_CreateObject();
-        cJSON_AddNumberToObject(entry, "id", lines[i].id);
-        cJSON_AddStringToObject(entry, "text", lines[i].text);
-        cJSON_AddItemToArray(array, entry);
-    }
-
-    return send_json_response(req, true, "Logs retrieved", NULL, data);
-}
-
 static esp_err_t handle_post_unlock(httpd_req_t *req)
 {
     if (!s_hooks.unlock) {
@@ -1274,9 +1245,6 @@ esp_err_t web_server_start(const web_server_hooks_t *hooks)
      */
     cfg.max_open_sockets = 4;
 
-    /* Start capturing before the server does anything worth reading. */
-    ESP_ERROR_CHECK_WITHOUT_ABORT(log_ring_init());
-
     /* Initialize WebSocket infrastructure */
     s_ws_clients_mutex = xSemaphoreCreateMutex();
     if (!s_ws_clients_mutex) {
@@ -1347,7 +1315,6 @@ esp_err_t web_server_start(const web_server_hooks_t *hooks)
         {.uri = "/api/config", .method = HTTP_POST, .handler = handle_post_config, .is_websocket = false},
         {.uri = "/api/config/reset", .method = HTTP_POST, .handler = handle_post_config_reset, .is_websocket = false},
         {.uri = "/api/reboot", .method = HTTP_POST, .handler = handle_post_reboot, .is_websocket = false},
-        {.uri = "/api/logs", .method = HTTP_GET, .handler = handle_get_logs, .is_websocket = false},
         {.uri = "/api/unlock", .method = HTTP_POST, .handler = handle_post_unlock, .is_websocket = false},
         {.uri = "/api/matter/pair", .method = HTTP_POST, .handler = handle_post_matter_pair, .is_websocket = false},
 

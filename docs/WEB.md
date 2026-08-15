@@ -26,7 +26,6 @@ phone joining the network pops the page up by itself.
 | `POST` | `/api/config` | Validate and persist. Body is a partial config; missing keys keep their value |
 | `POST` | `/api/config/reset` | Erase the stored configuration |
 | `POST` | `/api/reboot` | Restart so a saved configuration takes effect |
-| `GET` | `/api/logs` | Log lines newer than `?since=<id>`, from a 64-line ring buffer |
 | `POST` | `/api/unlock` | Drive the lock output now, as a granted tap would |
 
 `POST /api/config` returns `400` with `{"ok":false,"error":"..."}` and changes

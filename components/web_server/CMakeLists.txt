@@ -37,7 +37,7 @@ if(NOT CMAKE_BUILD_EARLY_EXPANSION)
     endforeach()
 endif()
 
-idf_component_register(SRCS         "web_server.c" "log_ring.c"
+idf_component_register(SRCS         "web_server.c"
                        INCLUDE_DIRS "include"
                        REQUIRES     app_config net_manager matter_lock
                        PRIV_REQUIRES esp_http_server json esp_app_format esp_hw_support

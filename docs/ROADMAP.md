@@ -99,8 +99,10 @@ Two gaps in the web service that must close before this touches a real door:
 
 - **Authentication.** The configuration UI is currently open to anyone on the
   network, including anyone who joins the setup AP.
-- **Live log streaming.** HomeKey-ESP32 does this over a WebSocket; here logs
-  are on the serial port and status is polled.
+- **Logs.** There is no log view in the UI. The ring buffer that fed one cost
+  ~16 KB of DRAM on a board where the web server was already failing to
+  allocate a 1 KB request buffer, so it was removed; the serial port still
+  prints everything.
 
 ## Later — beyond NFC
 

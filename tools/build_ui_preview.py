@@ -158,24 +158,6 @@ MOCK = r"""
     if (path === "/api/reboot") return json({ok:true});
     if (path === "/api/unlock") return json({ok:true});
 
-    if (path === "/api/logs") {
-      // Parsed by hand: new URL() needs a base, and a file:// page has none.
-      const since = Number((String(url).match(/[?&]since=(\d+)/) || [])[1] || 0);
-      const sample = [
-        "I (312) aliro/app: Aliro HomeKey starting",
-        "I (318) aliro/config: configuration loaded from NVS",
-        "I (325) aliro/access: credential 'dev-credential' registered",
-        "I (331) aliro/access: lock output on GPIO 4 (active low), unlock 3000 ms",
-        "W (338) nfc/stub: no NFC frontend configured; reader will never detect a device",
-        "I (344) aliro/reader: NFC transport: stub",
-        "I (351) aliro/net: connected as 'front-door', configuration UI at http://192.168.1.42/",
-        "I (358) aliro/mqtt: connecting to mqtt://192.168.1.10:1883, base topic 'aliro/front-door'",
-        "I (402) aliro/mqtt: published Home Assistant discovery for 'front-door'",
-        "I (409) aliro/web: configuration UI listening on port 80",
-      ];
-      const lines = sample.slice(since).map((text, i) => ({id: since + i + 1, text}));
-      return json({next: sample.length, lines});
-    }
     return json({ok:false, error:"no such endpoint"}, false);
   };
 })();

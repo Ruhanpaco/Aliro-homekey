@@ -27,7 +27,6 @@ extern "C" {
  *   POST /api/config       validate and persist a configuration
  *   POST /api/config/reset erase the stored configuration
  *   POST /api/reboot       restart, so a new configuration takes effect
- *   GET  /api/logs         recent log lines, newer than ?since=<id>
  *   POST /api/unlock       drive the lock output now
  *
  * Deliberately absent, unlike the project this borrows from: HomeKit pairing,
