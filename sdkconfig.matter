@@ -71,3 +71,11 @@ CONFIG_SPI_FLASH_ROM_IMPL=y
 # application usually needs.
 CONFIG_ESP_SYSTEM_EVENT_TASK_STACK_SIZE=4096
 CONFIG_FREERTOS_HZ=1000
+
+# Deeper than esp-matter's own examples need, because commands land on this
+# task and two of ours are expensive: SetCredential parses a PEM and derives a
+# key slot (mbedTLS parse plus a PSA import), and SetAliroReaderConfig converts
+# two keys and then rebuilds the reader, which parses them again. This project
+# has already been bitten once by that path -- on a short stack it does not
+# crash, it fails soft with ESP_FAIL, which reads exactly like a malformed key.
+CONFIG_CHIP_TASK_STACK_SIZE=10240

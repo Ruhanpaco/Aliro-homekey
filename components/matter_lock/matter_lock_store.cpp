@@ -349,7 +349,12 @@ bool emberAfPluginDoorLockSetUser(EndpointId endpointId, uint16_t userIndex, Fab
 
     StoredUser &stored = s_users[userIndex - 1];
     memset(&stored, 0, sizeof(stored));
-    memcpy(stored.name, userName.data(), userName.size());
+    if (!userName.empty()) {
+        /* An unnamed user is normal -- a controller enrolling a phone key does
+         * not have to invent a name -- and an empty CharSpan may carry a null
+         * pointer, which memcpy is not allowed to be handed even for 0 bytes. */
+        memcpy(stored.name, userName.data(), userName.size());
+    }
     stored.nameLen = static_cast<uint8_t>(userName.size());
     stored.uniqueId = uniqueId;
     stored.status = to_underlying(userStatus);
