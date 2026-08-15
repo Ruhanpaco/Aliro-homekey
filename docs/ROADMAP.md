@@ -77,12 +77,16 @@ that side, so a controller can drive the whole lifecycle over the standard
 path. Credentials provisioned this way persist in NVS and are re-enrolled at
 boot.
 
-What is still not solved is **attestation**. Commissioning requires a device
-attestation certificate chaining to a CSA-recognised root, which is issued as
-part of certification. With esp-matter's test credentials this commissions with
-`chip-tool` and Home Assistant and refuses to commission with Apple, Google or
-Samsung. That is the remaining gap between "a phone can hold a key for this
-reader" and "a phone you own can", and it is paperwork rather than code.
+**Attestation turned out not to be the wall it looked like.** This image
+carries esp-matter's test credentials, and Apple Home commissions it anyway
+after warning that the accessory is uncertified. Verified on hardware: two
+fabrics, a user and Aliro credentials provisioned, lock and unlock driving the
+GPIO from the Home app. `chip-tool` and Home Assistant accept it too; Google
+and Samsung are untested.
+
+Certification is what a product being sold needs. It is not what this needs to
+be tried. What remains unproven is the other end: whether a phone that holds an
+enrolled endpoint key can actually open the door over NFC.
 
 ## Milestone 4 — protocol depth
 

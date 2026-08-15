@@ -220,10 +220,11 @@ The card should move to "Commissioned (1)".
 then `SetCredential` with an Aliro endpoint key enrols a phone. The reader
 restarts on the new identity and the card shows "Provisioned".
 
-**What this cannot do yet:** Apple, Google and Samsung refuse to commission it.
-They require a device attestation certificate chaining to a root on the CSA's
-compliance ledger, which comes with certification; this image carries
-esp-matter's test credentials. `chip-tool` and Home Assistant accept those.
+**Apple Home commissions this**, despite the test attestation credentials: it
+warns that the accessory is uncertified and offers to add it anyway. Verified
+on hardware — commissioned into two fabrics, user and Aliro credentials
+provisioned, lock and unlock driving the GPIO from the Home app. `chip-tool`
+and Home Assistant accept it too. Google and Samsung are untested.
 
 **If it panics.** This build strips assert messages to save flash, so a crash
 prints bare addresses. The workflow attaches `aliro_homekey.elf`; feed it and

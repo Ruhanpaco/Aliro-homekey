@@ -82,9 +82,8 @@ jobs:
           echo "This image uses esp-matter's test attestation credentials."
           echo "  discriminator : 3840"
           echo "  passcode      : 20202021"
-          echo "chip-tool and Home Assistant accept those. Apple, Google and"
-          echo "Samsung require a real DAC from a CSA-certified device, so they"
-          echo "will refuse to commission this build."
+          echo "chip-tool and Home Assistant accept those, and Apple Home"
+          echo "commissions it after warning that it is uncertified."
           echo "The device prints its own MT: payload and a QR URL on boot, and"
           echo "the web UI shows both on the dashboard."
 

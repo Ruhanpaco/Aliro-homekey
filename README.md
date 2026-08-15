@@ -134,11 +134,12 @@ Two things worth knowing before flashing it:
 
 - **It roughly doubles the application.** It still fits a 1.875 MB OTA slot on a
   4 MB board, but not by much; the workflow fails the build if it stops fitting.
-- **It uses esp-matter's test attestation credentials.** `chip-tool` and Home
-  Assistant will commission it. Apple, Google and Samsung will not — they
-  require a real device attestation certificate, which only comes with CSA
-  certification. That is a paperwork problem, not a code one, and it is the same
-  for every DIY Matter device.
+- **It uses esp-matter's test attestation credentials.** Apple Home commissions
+  it anyway, after warning that the accessory is uncertified and offering to add
+  it regardless — verified on hardware, two fabrics, with lock and unlock
+  working from the Home app. `chip-tool` and Home Assistant accept it too.
+  Google and Samsung are untested. Certification is still what a shipping
+  product needs; it is not what a bench test needs.
 
 Commissioning details (the `MT:` payload, a link that renders it as a QR code,
 and the manual pairing code) are printed at boot and shown on the dashboard.
