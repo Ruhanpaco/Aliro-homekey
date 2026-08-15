@@ -10,15 +10,13 @@
  * protocol, and it does ISO 14443-4 reader mode with the ISO-DEP layer handled
  * in the chip. InDataExchange performs RATS on the first call for a target
  * whose SAK advertises 14443-4 support, so this driver hands whole APDUs down
- * and gets whole APDUs back -- which is exactly the seam nfc_transport_t wants.
+ * and gets whole APDUs back, which is the only shape an Aliro reader needs.
  *
  * Everything here is the NXP "normal information frame" protocol from
  * PN532/C1 User Manual (UM0701-02), section 6.2.1.
  */
 
 #include "pn532.h"
-
-#include "nfc_transport.h"
 
 #include <driver/gpio.h>
 #include <driver/i2c_master.h>
@@ -535,75 +533,4 @@ esp_err_t pn532_begin(const pn532_config_t *cfg)
     s_pn532 = (pn532_t){0};
     s_pn532.cfg = *cfg;
     return pn532_start(&s_pn532);
-}
-
-/* --- nfc_transport_t adapter -------------------------------------------- */
-
-/*
- * This firmware drives the reader through nfc_transport_t, which passes a
- * context pointer the five primitives above do not need -- the PN532 is a
- * singleton either way. These wrappers exist only to bridge that difference,
- * so the same driver serves both this project and an esp-matter door lock,
- * whose delegate calls the primitives directly.
- */
-static esp_err_t transport_init(void *ctx)
-{
-    (void)ctx;
-    return pn532_start(&s_pn532);
-}
-
-static void transport_poll(void *ctx)
-{
-    (void)ctx;
-    pn532_update();
-}
-
-static bool transport_activate(void *ctx)
-{
-    (void)ctx;
-    return pn532_activate();
-}
-
-static void transport_deactivate(void *ctx)
-{
-    (void)ctx;
-    pn532_deactivate();
-}
-
-static esp_err_t transport_exchange(void *ctx, const uint8_t *command, size_t command_len, uint8_t *response,
-                                    size_t *response_len)
-{
-    (void)ctx;
-    return pn532_message_exchange(command, command_len, response, response_len);
-}
-
-static const nfc_transport_t k_pn532 = {
-    .init = transport_init,
-    .poll = transport_poll,
-    .activate = transport_activate,
-    .deactivate = transport_deactivate,
-    .exchange = transport_exchange,
-    .ctx = &s_pn532,
-    .name = "pn532",
-};
-
-const nfc_transport_t *nfc_transport_pn532(const nfc_hw_config_t *cfg)
-{
-    /* app_config's view of the wiring, translated into the driver's own. */
-    s_pn532 = (pn532_t){0};
-    s_pn532.cfg = (pn532_config_t){
-        .bus = cfg->bus == NFC_BUS_I2C ? PN532_BUS_I2C : PN532_BUS_SPI,
-        .spi_host = cfg->spi_host,
-        .spi_sck = cfg->spi_sck,
-        .spi_miso = cfg->spi_miso,
-        .spi_mosi = cfg->spi_mosi,
-        .spi_cs = cfg->spi_cs,
-        .spi_freq_hz = cfg->spi_freq_hz,
-        .i2c_sda = cfg->i2c_sda,
-        .i2c_scl = cfg->i2c_scl,
-        .i2c_freq_hz = cfg->i2c_freq_hz,
-        .i2c_addr = cfg->i2c_addr,
-        .rst_pin = cfg->rst_pin == APP_CFG_PIN_UNSET ? PN532_PIN_UNSET : cfg->rst_pin,
-    };
-    return &k_pn532;
 }
