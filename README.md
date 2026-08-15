@@ -110,6 +110,39 @@ prefers the NVS keys when they are present and falls back otherwise.
 Needs Chrome, Edge or Opera on a desktop — no other browser implements
 WebSerial.
 
+### With Matter
+
+Optional, and off by default. Turning it on presents the same firmware to phone
+ecosystems as a Matter **Door Lock** (cluster `0x0101`) with the Aliro
+provisioning feature, which is the standard way a controller hands a lock its
+reader key pair (`SetAliroReaderConfig`) and then enrolls the phones allowed to
+open it (`SetCredential` with an Aliro endpoint key). Nothing about a tap
+changes: the transaction is still NFC, still handled by `aliro_reader`, and
+still works with the network down.
+
+It needs [esp-matter](https://github.com/espressif/esp-matter), which is a large
+checkout with its own submodules. The easy way is Espressif's container:
+
+```bash
+docker run --rm -it -v "$PWD:/work" -w /work espressif/esp-matter:latest bash -lc '. $IDF_PATH/export.sh && . $ESP_MATTER_PATH/export.sh && idf.py -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.matter" set-target esp32 build'
+```
+
+The same build runs in CI as the `matter-firmware` workflow, which produces a
+factory image and an OTA image exactly like the ordinary build does.
+
+Two things worth knowing before flashing it:
+
+- **It roughly doubles the application.** It still fits a 1.875 MB OTA slot on a
+  4 MB board, but not by much; the workflow fails the build if it stops fitting.
+- **It uses esp-matter's test attestation credentials.** `chip-tool` and Home
+  Assistant will commission it. Apple, Google and Samsung will not — they
+  require a real device attestation certificate, which only comes with CSA
+  certification. That is a paperwork problem, not a code one, and it is the same
+  for every DIY Matter device.
+
+Commissioning details (the `MT:` payload, a link that renders it as a QR code,
+and the manual pairing code) are printed at boot and shown on the dashboard.
+
 ## Layout
 
 ```text
@@ -123,6 +156,7 @@ WebSerial.
 │   ├── access_control/ credential store, access decision, lock output
 │   ├── net_manager/    Wi-Fi with a setup-AP fallback and captive portal
 │   ├── mqtt_manager/   lock state, tap events, Home Assistant discovery
+│   ├── matter_lock/    the Matter door lock endpoint: commissioning + Aliro provisioning
 │   └── web_server/     REST API + the embedded configuration UI
 ├── boards/             per-board sdkconfig defaults
 ├── tools/              development identity generation

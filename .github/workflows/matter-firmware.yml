@@ -1,14 +1,17 @@
 name: matter-firmware
 
-# Builds a flashable Matter + Aliro door lock for the ESP32, driving a PN532.
+# This firmware, built with the Matter door lock endpoint switched on.
 #
-# Espressif's esp-matter door_lock example already does Matter commissioning and
-# Aliro-over-NFC correctly, so it is the base rather than something to reimplement.
-# Two things are changed: its NFC frontend becomes ours (it ships an ST25R3916 on
-# an M5Unit-NFC; a PN532 is the part people can buy), and the build targets Wi-Fi
-# on a classic ESP32 instead of Thread on a C6/H2.
+# It is the same project as the ordinary build -- same web UI, same setup
+# portal, same OTA page, same PN532 reader -- with components/matter_lock
+# compiled in instead of stubbed out. The only reason it needs its own workflow
+# is the toolchain: esp-matter is a 2 GB checkout with its own submodules, so
+# the build runs in Espressif's container rather than the ESP-IDF action.
 #
-# The output is a factory image to flash at 0x0 and commission with chip-tool.
+# Output is the same pair of images the normal build produces:
+#
+#   <target>.matter.firmware.factory.bin  flash at 0x0, wipes the board
+#   <target>.matter.firmware.bin          app only, for the OTA page
 
 on:
   workflow_dispatch:
@@ -16,7 +19,7 @@ on:
       target:
         description: Chip to build for
         type: choice
-        options: [esp32, esp32c3]
+        options: [esp32, esp32c3, esp32s3]
         default: esp32
 
 jobs:
@@ -27,39 +30,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-        with:
-          path: aliro
-
-      - name: Swap the ST25R3916 frontend for our PN532
-        shell: bash
-        run: |
-          set -euo pipefail
-          example="$ESP_MATTER_PATH/examples/door_lock"
-
-          # Their m5nfc component: find it rather than assume a path, since it
-          # may live in the example or be pulled in as a managed component.
-          their_nfc=$(find "$ESP_MATTER_PATH" -type d -name m5nfc | head -1)
-          if [ -z "$their_nfc" ]; then
-            echo "could not find their m5nfc component" >&2
-            exit 1
-          fi
-          echo "replacing $their_nfc"
-
-          # Ours provides the same five functions from the same header, so the
-          # example's app_main and the Aliro delegate compile untouched.
-          rm -rf "$their_nfc"
-          mkdir -p "$example/components/m5nfc" "$example/components/pn532"
-          cp "$GITHUB_WORKSPACE/aliro/components/pn532_m5nfc/m5nfc.c" \
-             "$GITHUB_WORKSPACE/aliro/components/pn532_m5nfc/m5nfc.h" \
-             "$GITHUB_WORKSPACE/aliro/components/pn532_m5nfc/Kconfig" \
-             "$GITHUB_WORKSPACE/aliro/components/pn532_m5nfc/CMakeLists.txt" \
-             "$example/components/m5nfc/"
-          cp -r "$GITHUB_WORKSPACE/aliro/components/pn532/." "$example/components/pn532/"
-
-          # The M5Stack units are only there for the frontend we just removed.
-          sed -i '/m5stack__M5Unit-NFC/,+1d' "$example/main/idf_component.yml" || true
-          echo "--- example components ---"
-          ls "$example/components"
 
       - name: Build
         shell: bash
@@ -67,66 +37,50 @@ jobs:
           set -euo pipefail
           . "$IDF_PATH/export.sh"
           . "$ESP_MATTER_PATH/export.sh"
-          cd "$ESP_MATTER_PATH/examples/door_lock"
 
-          cat > sdkconfig.pn532 <<'CFG'
-          CONFIG_ENABLE_ALIRO_OVER_NFC=y
-          CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+          # ESP_MATTER_PATH is what the top-level CMakeLists keys off to add
+          # esp-matter's components; sdkconfig.matter is what turns the door
+          # lock endpoint on.
+          idf.py -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.matter" \
+                 set-target ${{ inputs.target }} build
 
-          # Measured: without these the ESP32 overflows IRAM by 5,680 bytes.
-          CONFIG_COMPILER_OPTIMIZATION_SIZE=y
-          CONFIG_COMPILER_OPTIMIZATION_ASSERTIONS_SILENT=y
-          CONFIG_COMPILER_SAVE_RESTORE_LIBCALLS=y
-          CONFIG_ESP_WIFI_IRAM_OPT=n
-          CONFIG_ESP_WIFI_RX_IRAM_OPT=n
-          CONFIG_FREERTOS_PLACE_FUNCTIONS_INTO_FLASH=y
-          CONFIG_SPI_FLASH_ROM_IMPL=y
-          CONFIG_BT_NIMBLE_ROLE_CENTRAL=n
-          CONFIG_BT_NIMBLE_ROLE_OBSERVER=n
-
-          # PN532 on SPI, the pins this project has used throughout.
-          CONFIG_PN532_BUS_SPI=y
-          CONFIG_PN532_SPI_HOST=1
-          CONFIG_PN532_SPI_SCK=18
-          CONFIG_PN532_SPI_MISO=19
-          CONFIG_PN532_SPI_MOSI=23
-          CONFIG_PN532_SPI_CS=5
-          CONFIG_PN532_SPI_FREQ_HZ=1000000
-          CONFIG_PN532_RST_PIN=-1
-          CFG
-
-          idf.py -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.pn532" \
-                 set-target ${{ inputs.target }} build 2>&1 | tail -30
-
-      - name: Package a factory image and report the onboarding payload
+      - name: Package
         shell: bash
         run: |
           set -euo pipefail
           . "$IDF_PATH/export.sh"
-          cd "$ESP_MATTER_PATH/examples/door_lock/build"
+          ./tools/package_firmware.sh ${{ inputs.target }} matter
 
-          out="$GITHUB_WORKSPACE/firmware"
-          mkdir -p "$out"
+      - name: Report what has to fit
+        shell: bash
+        run: |
+          set -euo pipefail
+          app=$(stat -c%s build/aliro_homekey.bin)
+          slot=$((0x1E0000))
+          echo "application : $((app / 1024)) KB"
+          echo "OTA slot    : $((slot / 1024)) KB"
+          echo "headroom    : $(((slot - app) / 1024)) KB"
+          if [ "$app" -ge "$slot" ]; then
+            echo "::error::the application does not fit an OTA slot"
+            exit 1
+          fi
+          # Under 64 KB spare is not enough room for a firmware update to grow
+          # into, and finding that out during an OTA is finding out too late.
+          if [ $((slot - app)) -lt 65536 ]; then
+            echo "::warning::less than 64 KB of headroom in the OTA slot"
+          fi
 
-          # @flash_args carries the offsets the build actually chose, so the
-          # merged image cannot drift from the real partition layout.
-          python -m esptool --chip ${{ inputs.target }} merge_bin \
-              -o "$out/${{ inputs.target }}.matter.firmware.factory.bin" -f raw \
-              --fill-flash-size 4MB @flash_args
-          cp door_lock.bin "$out/${{ inputs.target }}.matter.firmware.bin"
-
-          echo "=== what these are ==="
-          echo "  <target>.matter.firmware.factory.bin  USB, offset 0x0   fresh board, wipes everything"
-          echo "  <target>.matter.firmware.bin          USB, offset 0x20000  app only, keeps commissioning"
-          echo
-          echo "=== sizes ==="
-          ls -l "$out"
-          echo
-          echo "=== commissioning ==="
-          echo "These are esp-matter's test credentials, which is what chip-tool expects:"
+      - name: Commissioning notes
+        shell: bash
+        run: |
+          echo "This image uses esp-matter's test attestation credentials."
           echo "  discriminator : 3840"
           echo "  passcode      : 20202021"
-          echo "The device prints its own MT: payload and QR URL on boot."
+          echo "chip-tool and Home Assistant accept those. Apple, Google and"
+          echo "Samsung require a real DAC from a CSA-certified device, so they"
+          echo "will refuse to commission this build."
+          echo "The device prints its own MT: payload and a QR URL on boot, and"
+          echo "the web UI shows both on the dashboard."
 
       - uses: actions/upload-artifact@v4
         with:

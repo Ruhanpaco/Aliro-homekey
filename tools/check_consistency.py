@@ -142,6 +142,10 @@ KNOWN_IDF_COMPONENTS = {
     "esp_aliro_lib", "freertos", "hal", "heap", "json", "log", "lwip",
     "mbedtls", "mqtt", "newlib", "nvs_flash", "protocol_examples_common",
     "pthread", "soc", "spi_flash", "vfs", "wpa_supplicant",
+    # From esp-matter, present only when ESP_MATTER_PATH is set. Named here
+    # rather than special-cased, because a typo in them fails exactly the same
+    # way -- just in a build most people never run.
+    "chip", "esp_matter", "esp_matter_console",
 }
 
 

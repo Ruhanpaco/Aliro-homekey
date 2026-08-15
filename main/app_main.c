@@ -12,6 +12,7 @@
 #include "access_control.h"
 #include "aliro_reader.h"
 #include "app_config.h"
+#include "matter_lock.h"
 #include "mqtt_manager.h"
 #include "net_manager.h"
 #include "nfc_transport.h"
@@ -27,6 +28,7 @@
 #include <nvs_flash.h>
 #include <sdkconfig.h>
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -52,6 +54,7 @@ static struct {
     const char *credential_pub;
     size_t credential_pub_len;
     bool provisioned;
+    bool owned; /*!< the key pair is on the heap and this file must free it */
 } s_identity;
 
 static void load_identity(void)
@@ -67,6 +70,7 @@ static void load_identity(void)
         s_identity.reader_pub = reader_pub;
         s_identity.reader_priv = reader_priv;
         s_identity.provisioned = true;
+        s_identity.owned = true;
     } else {
         if (reader_pub || reader_priv) {
             ESP_LOGW(k_tag, "NVS holds only half a reader key pair; ignoring it");
@@ -125,6 +129,130 @@ static esp_err_t start_reader(const app_config_t *cfg)
     return ESP_OK;
 }
 
+/* --- Matter -------------------------------------------------------------- */
+
+/*
+ * The Matter side owns none of this; it asks through these. Everything below
+ * is the same wiring the rest of app_main does, just triggered by a controller
+ * instead of by boot.
+ */
+
+/**
+ * @brief Adopt the reader identity a Matter controller just sent us.
+ *
+ * Persisted first, then applied, in that order on purpose: a device that
+ * accepted SetAliroReaderConfig and then lost power must come back with the
+ * identity the controller believes it has, or every phone enrolled against it
+ * is silently dead.
+ */
+static esp_err_t reader_set_identity(const char *pubkey_pem, const char *privkey_pem, const uint8_t *group_id,
+                                     size_t group_id_len)
+{
+    ESP_RETURN_ON_FALSE(pubkey_pem && privkey_pem && group_id && group_id_len == ALIRO_GROUP_IDENTIFIER_LEN,
+                        ESP_ERR_INVALID_ARG, k_tag, "incomplete reader identity");
+
+    char *pub = strdup(pubkey_pem);
+    char *priv = strdup(privkey_pem);
+    if (!pub || !priv) {
+        free(pub);
+        free(priv);
+        return ESP_ERR_NO_MEM;
+    }
+
+    esp_err_t err = app_config_save_pem("rdr_pub", pub);
+    if (err == ESP_OK) {
+        err = app_config_save_pem("rdr_priv", priv);
+    }
+    if (err == ESP_OK) {
+        app_config_t cfg = *app_config_get();
+        for (size_t i = 0; i < group_id_len; i++) {
+            snprintf(cfg.group_id_hex + i * 2, 3, "%02X", group_id[i]);
+        }
+        char reason[96] = {0};
+        err = app_config_save(&cfg, reason, sizeof(reason));
+        if (err != ESP_OK) {
+            ESP_LOGE(k_tag, "could not store the reader group identifier: %s", reason);
+        }
+    }
+    if (err != ESP_OK) {
+        free(pub);
+        free(priv);
+        return err;
+    }
+
+    /* Swap the live reader. Stopping first is required: the SDK allows one
+     * reader at a time, and creating a second returns ESP_ERR_INVALID_STATE. */
+    ESP_ERROR_CHECK_WITHOUT_ABORT(aliro_reader_stop());
+
+    if (s_identity.owned) {
+        free((void *)s_identity.reader_pub);
+        free((void *)s_identity.reader_priv);
+    }
+    s_identity.reader_pub = pub;
+    s_identity.reader_priv = priv;
+    s_identity.provisioned = true;
+    s_identity.owned = true;
+
+    err = start_reader(app_config_get());
+    if (err != ESP_OK) {
+        ESP_LOGE(k_tag, "the reader did not come back up with the provisioned identity");
+        return err;
+    }
+
+    /* Key slots are derived against the reader's group sub-identifier, so
+     * everything already enrolled has to be recomputed against the new one. */
+    (void)access_control_refresh_key_slots();
+    ESP_LOGI(k_tag, "reader now running the identity provisioned over Matter");
+    return ESP_OK;
+}
+
+static esp_err_t reader_clear_identity(void)
+{
+    ESP_ERROR_CHECK_WITHOUT_ABORT(app_config_erase_pem("rdr_pub"));
+    ESP_ERROR_CHECK_WITHOUT_ABORT(app_config_erase_pem("rdr_priv"));
+
+    /* The reader keeps running on the identity it has until the next restart.
+     * Tearing it down here would leave a door that cannot be opened by anyone,
+     * including whoever is standing in front of it, and the controller has no
+     * way to know that happened. */
+    ESP_LOGW(k_tag, "reader identity erased; it takes effect at the next restart");
+    return ESP_OK;
+}
+
+static void on_access_event_for_matter(const access_event_t *event, void *ctx)
+{
+    (void)ctx;
+    if (event->type == ACCESS_EVENT_LOCK_STATE) {
+        matter_lock_report_lock_state(event->locked);
+    }
+}
+
+static void start_matter(void)
+{
+    if (!matter_lock_available()) {
+        return;
+    }
+
+    const matter_lock_hooks_t hooks = {
+        .set_reader_identity = reader_set_identity,
+        .clear_reader_identity = reader_clear_identity,
+        .add_credential = access_control_add_credential,
+        .remove_credential = access_control_remove_credential,
+        .unlock = access_control_unlock,
+        .lock = access_control_lock,
+        .is_locked = access_control_is_locked,
+    };
+
+    if (matter_lock_start(&hooks) != ESP_OK) {
+        ESP_LOGE(k_tag, "Matter did not start; the reader and the web UI are unaffected");
+        return;
+    }
+
+    /* So a tap, or the relock timer behind it, moves LockState in whatever app
+     * commissioned this device. */
+    ESP_ERROR_CHECK_WITHOUT_ABORT(access_control_add_observer(on_access_event_for_matter, NULL));
+}
+
 void app_main(void)
 {
     ESP_LOGI(k_tag, "Aliro HomeKey starting");
@@ -169,8 +297,18 @@ void app_main(void)
         }
     }
 
-    /* Networking last: a reader must keep working on a door whose Wi-Fi is
-     * down, so nothing above this line depends on it. */
+    /*
+     * Matter before the network, and only because of who owns the Wi-Fi
+     * driver: chip's ESP32 platform layer initializes esp_netif and esp_wifi
+     * from inside InitChipStack, and doing that twice fails. net_manager
+     * detects a driver that is already up and joins it, which is why this
+     * order works and the other one does not. In a build without Matter this
+     * is a no-op and nothing changes.
+     */
+    start_matter();
+
+    /* Networking: a reader must keep working on a door whose Wi-Fi is down, so
+     * nothing above this line depends on it. */
     ESP_ERROR_CHECK_WITHOUT_ABORT(net_manager_start(&cfg->net));
 
     ESP_ERROR_CHECK_WITHOUT_ABORT(mqtt_manager_start(&cfg->mqtt, cfg->device_name));

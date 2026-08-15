@@ -523,6 +523,36 @@ main{padding:0 1.5rem 1.5rem;height:100%;overflow-y:auto;background:var(--color-
                   issued against. Every reader on the same lock group shares it.</p>
               </div>
             </div>
+            <div class="card hidden" id="matter_card">
+              <div class="card-body">
+                <div class="card-head">
+                  <div class="icon-tile">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                         stroke="currentColor" stroke-width="2" aria-hidden="true">
+                      <path stroke-linecap="round" stroke-linejoin="round"
+                            d="M12 3v18M3.6 7.5l16.8 9M20.4 7.5l-16.8 9"/>
+                    </svg>
+                  </div>
+                  <div>
+                    <h2 class="card-title">Matter</h2>
+                    <p class="caption">Commissioning and provisioning</p>
+                  </div>
+                </div>
+                <dl id="st_matter"></dl>
+                <div id="matter_pairing" class="space-y-2">
+                  <div class="stat-box">
+                    <div class="k">Pairing code</div>
+                    <div class="v" id="matter_manual">—</div>
+                  </div>
+                  <div class="flex gap-2">
+                    <a id="matter_qr" class="btn btn-sm btn-outline flex-1" target="_blank" rel="noopener">Show QR</a>
+                    <button type="button" class="btn btn-sm btn-outline flex-1" id="matter_pair">Reopen pairing</button>
+                  </div>
+                </div>
+                <p class="text-xs text-muted">A controller commissions this lock over Bluetooth, then
+                  sends it a reader identity and the phone keys allowed to open it.</p>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -1249,6 +1279,20 @@ function renderStatus(s) {
     ["Heap Low Water", `${(s.device.min_free_heap / 1024).toFixed(1)} KB`],
   ]);
 
+    /* Absent in a build without Matter, which is the default one. */
+  if (s.matter && s.matter.available) {
+    $("matter_card").classList.remove("hidden");
+    rows("st_matter", [
+      ["Status", !s.matter.running ? badge("Not started", "error")
+        : s.matter.fabrics ? badge(`Commissioned (${s.matter.fabrics})`, "success")
+          : badge("Waiting to pair", "warning")],
+      ["Reader identity", s.matter.reader_configured ? badge("Provisioned", "success") : badge("Not set", "ghost")],
+    ]);
+    $("matter_manual").textContent = s.matter.manual_code || "—";
+    $("matter_pairing").classList.toggle("hidden", !s.matter.qr_url);
+    if (s.matter.qr_url) $("matter_qr").href = s.matter.qr_url;
+  }
+
   $("lock_badge").className = `badge badge-${s.reader.locked ? "success" : "warning"}`;
   $("lock_badge").textContent = s.reader.locked ? "Locked" : "Unlocked";
 
@@ -1345,6 +1389,14 @@ $("form").addEventListener("submit", async (e) => {
 $("unlock").addEventListener("click", async () => {
   try { await api("/api/unlock", {method: "POST"}); toast("Unlocked."); refreshStatus(); }
   catch (err) { toast(err.message, "error"); }
+});
+
+$("matter_pair").addEventListener("click", async () => {
+  try {
+    await api("/api/matter/pair", {method: "POST"});
+    toast("Pairing open for 5 minutes.");
+    refreshStatus();
+  } catch (err) { toast(err.message, "error"); }
 });
 
 $("reboot").addEventListener("click", async () => {

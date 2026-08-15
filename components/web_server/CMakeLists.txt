@@ -39,7 +39,7 @@ endif()
 
 idf_component_register(SRCS         "web_server.c" "log_ring.c"
                        INCLUDE_DIRS "include"
-                       REQUIRES     app_config net_manager
+                       REQUIRES     app_config net_manager matter_lock
                        PRIV_REQUIRES esp_http_server json esp_app_format esp_hw_support
                                      esp_timer esp_system freertos
                                      app_update esp_partition esp_wifi

@@ -1,0 +1,18 @@
+menu "Aliro Matter"
+
+config ALIRO_MATTER_ENABLE
+    bool "Expose the reader as a Matter Door Lock"
+    default n
+    help
+        Present this device to Matter controllers as a Door Lock (cluster
+        0x0101) with the Aliro provisioning feature, so a phone ecosystem can
+        hand it a reader key pair and enroll endpoint keys the standard way.
+
+        Requires esp-matter: build inside the espressif/esp-matter container,
+        or set ESP_MATTER_PATH before running idf.py. Adds roughly 1.5 MB to
+        the application, so check that the image still fits the OTA slot.
+
+        Taps themselves do not go through Matter. NFC and the Aliro
+        transaction work exactly the same with this off.
+
+endmenu

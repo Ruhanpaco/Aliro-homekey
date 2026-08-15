@@ -9,6 +9,7 @@
 #include "log_ring.h"
 
 #include "app_config.h"
+#include "matter_lock.h"
 #include "net_manager.h"
 
 #include <cJSON.h>
@@ -551,6 +552,19 @@ static esp_err_t handle_get_status(httpd_req_t *req)
     cJSON_AddBoolToObject(mqtt, "enabled", s_hooks.mqtt_enabled ? s_hooks.mqtt_enabled() : false);
     cJSON_AddBoolToObject(mqtt, "connected", s_hooks.mqtt_connected ? s_hooks.mqtt_connected() : false);
 
+    /* Called through the API rather than a hook: matter_lock stubs itself out
+     * in a build without it, so this reports "unavailable" and costs a handful
+     * of bytes rather than another five function pointers. */
+    cJSON *matter = cJSON_AddObjectToObject(data, "matter");
+    cJSON_AddBoolToObject(matter, "available", matter_lock_available());
+    if (matter_lock_available()) {
+        cJSON_AddBoolToObject(matter, "running", matter_lock_running());
+        cJSON_AddNumberToObject(matter, "fabrics", matter_lock_fabric_count());
+        cJSON_AddBoolToObject(matter, "reader_configured", matter_lock_reader_configured());
+        cJSON_AddStringToObject(matter, "manual_code", matter_lock_manual_code());
+        cJSON_AddStringToObject(matter, "qr_url", matter_lock_qr_url());
+    }
+
     /* Which slot is running and which one an update would land in. Worth
      * showing: it is the difference between "the update took" and "the update
      * wrote somewhere and the device booted the old image anyway". */
@@ -740,6 +754,25 @@ static esp_err_t handle_post_unlock(httpd_req_t *req)
     cJSON *data = cJSON_CreateObject();
     cJSON_AddBoolToObject(data, "unlocked", true);
     return send_json_response(req, true, "Lock activated", NULL, data);
+}
+
+static esp_err_t handle_post_matter_pair(httpd_req_t *req)
+{
+    /*
+     * Only useful on a device that has already been commissioned once: an
+     * uncommissioned one advertises on its own from boot. This is how a second
+     * ecosystem gets added, and how a lock is recovered when the controller
+     * that owned it is gone.
+     */
+    if (!matter_lock_available()) {
+        httpd_resp_set_status(req, "501 Not Implemented");
+        return send_json_response(req, false, NULL, "this firmware was built without Matter", NULL);
+    }
+    if (matter_lock_open_commissioning_window() != ESP_OK) {
+        httpd_resp_set_status(req, "500 Internal Server Error");
+        return send_json_response(req, false, NULL, "could not open the commissioning window", NULL);
+    }
+    return send_json_response(req, true, "Pairing open", NULL, NULL);
 }
 
 static void reboot_task(void *params)
@@ -1248,6 +1281,7 @@ esp_err_t web_server_start(const web_server_hooks_t *hooks)
         {.uri = "/api/reboot", .method = HTTP_POST, .handler = handle_post_reboot, .is_websocket = false},
         {.uri = "/api/logs", .method = HTTP_GET, .handler = handle_get_logs, .is_websocket = false},
         {.uri = "/api/unlock", .method = HTTP_POST, .handler = handle_post_unlock, .is_websocket = false},
+        {.uri = "/api/matter/pair", .method = HTTP_POST, .handler = handle_post_matter_pair, .is_websocket = false},
 
         /* WebSocket endpoint */
         {.uri = "/api/ws", .method = HTTP_GET, .handler = handle_websocket, .is_websocket = true},
