@@ -24,7 +24,8 @@ IDF_CONFIG_PREFIXES = (
     "CONFIG_IDF_TARGET", "CONFIG_FREERTOS", "CONFIG_ESP_CONSOLE", "CONFIG_HTTPD",
     "CONFIG_MBEDTLS", "CONFIG_LOG", "CONFIG_PARTITION", "CONFIG_COMPILER",
     "CONFIG_ESPTOOLPY", "CONFIG_SPIRAM", "CONFIG_LWIP", "CONFIG_ESP_WIFI",
-    "CONFIG_SOC_", "CONFIG_ESP_MAIN", "CONFIG_BOOTLOADER",
+    "CONFIG_SOC_", "CONFIG_ESP_MAIN", "CONFIG_BOOTLOADER", "CONFIG_IDF_FIRMWARE",
+    "CONFIG_ESP_SYSTEM", "CONFIG_SPI_FLASH",
 )
 
 problems: list[str] = []
@@ -71,9 +72,21 @@ def check_config_symbols() -> None:
             notes.append(f"{name} declared in {kconfig} but never used")
 
 
+# Declared by esp-matter and the Matter SDK, whose Kconfigs are only present
+# when ESP_MATTER_PATH is set -- which it is not when this check runs. Listing
+# the namespaces still catches a symbol that belongs to nobody at all, which is
+# what a typo looks like.
+MATTER_CONFIG_PREFIXES = (
+    "CONFIG_CHIP_", "CONFIG_ESP_MATTER", "CONFIG_ENABLE_", "CONFIG_SUPPORT_",
+    "CONFIG_BT_", "CONFIG_FACTORY_", "CONFIG_SEC_CERT", "CONFIG_USE_",
+    "CONFIG_ALIRO_MATTER",
+)
+
+
 def sdkconfig_defaults() -> dict[str, set[str]]:
     found: dict[str, set[str]] = {}
-    files = [ROOT / "sdkconfig.defaults"] + sorted((ROOT / "boards").glob("sdkconfig.defaults.*"))
+    files = ([ROOT / "sdkconfig.defaults", ROOT / "sdkconfig.matter"]
+             + sorted((ROOT / "boards").glob("sdkconfig.defaults.*")))
     for path in files:
         if not path.exists():
             continue
@@ -85,7 +98,7 @@ def sdkconfig_defaults() -> dict[str, set[str]]:
 def check_sdkconfig_defaults() -> None:
     declared = declared_config_symbols()
     for name, where in sorted(sdkconfig_defaults().items()):
-        if name in declared or name.startswith(IDF_CONFIG_PREFIXES):
+        if name in declared or name.startswith(IDF_CONFIG_PREFIXES + MATTER_CONFIG_PREFIXES):
             continue
         problems.append(f"{name} set in {', '.join(sorted(where))} but declared in no Kconfig")
 
