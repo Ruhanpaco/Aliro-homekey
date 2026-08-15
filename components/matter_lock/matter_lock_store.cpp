@@ -279,7 +279,23 @@ static void store_load(void)
 
 void emberAfDoorLockClusterInitCallback(EndpointId endpoint)
 {
-    DoorLockServer::Instance().InitServer(endpoint);
+    /*
+     * InitEndpoint with the delegate, not the older InitServer, and this is not
+     * a modernisation: InitEndpoint ends with an unconditional
+     *
+     *     endpointContext->delegate = delegate;
+     *
+     * and InitServer is a deprecated alias that passes nullptr. esp-matter sets
+     * the same delegate itself from the cluster config, so whichever of the two
+     * ran second decided the outcome -- and if that was InitServer, every Aliro
+     * attribute would read back as unsupported and SetAliroReaderConfig would
+     * fail, with the endpoint otherwise looking perfectly healthy. Passing it
+     * here makes both orderings agree.
+     */
+    const CHIP_ERROR err = DoorLockServer::Instance().InitEndpoint(endpoint, &AliroReaderDelegate::Instance());
+    if (err != CHIP_NO_ERROR) {
+        ESP_LOGE(k_tag, "door lock cluster init failed on endpoint %u", (unsigned)endpoint);
+    }
 
     store_load();
 
