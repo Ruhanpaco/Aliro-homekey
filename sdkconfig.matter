@@ -73,6 +73,20 @@ CONFIG_MBEDTLS_SHA384_C=y
 CONFIG_MBEDTLS_SHA512_C=y
 CONFIG_MBEDTLS_HKDF_C=y
 
+# --- Fitting in the RAM ----------------------------------------------------
+# Trimmed because the web server was failing to allocate a 1 kB request
+# scratch buffer on hardware while chip, BLE and Wi-Fi were all resident:
+#
+#     E httpd_parse: Unable to allocate the scratch buffer
+#
+# Static RX buffers are 1.6 kB each and permanently resident; the dynamic
+# counts are ceilings on what the driver may take from the heap at peak. The
+# TCP window is deliberately left alone -- shrinking it would slow the 1.8 MB
+# OTA upload, which is the one transfer this device really has to finish.
+CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=6
+CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=16
+CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER_NUM=16
+
 # --- Fitting in the image --------------------------------------------------
 # Measured on the ESP32: without these the link overflows IRAM by ~5.7 KB, and
 # the application does not fit a 1.875 MB OTA slot.

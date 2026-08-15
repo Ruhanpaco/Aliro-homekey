@@ -28,6 +28,7 @@
 #include <app/server/CommissioningWindowManager.h>
 #include <app/server/Server.h>
 #include <lib/support/TypeTraits.h>
+#include <platform/ConnectivityManager.h>
 #include <platform/PlatformManager.h>
 #include <setup_payload/OnboardingCodesUtil.h>
 
@@ -278,6 +279,36 @@ extern "C" esp_err_t matter_lock_start(const matter_lock_hooks_t *hooks)
     }
 
     s_running = true;
+
+#if CHIP_DEVICE_CONFIG_ENABLE_WIFI_STATION
+    /*
+     * The station is ours, not chip's.
+     *
+     * Left to itself chip's ConnectivityManager drives the station on its own
+     * schedule -- and it has no credentials, because in this project they
+     * arrive through the setup portal and live in our own configuration, not
+     * in chip's. On hardware that produced two state machines fighting over
+     * one radio:
+     *
+     *     chip[DL]: Attempting to connect WiFi station interface
+     *     E chip[DL]: Failed to get configured network ... 0x0500300F
+     *     E wifi:sta is connecting, cannot set config    <- ours, refused
+     *     aliro/net: lost 'iPhone-R', retry 1/3
+     *
+     * The last two lines are the damage: chip's connect attempt was in flight
+     * when net_manager called esp_wifi_set_config, so the credentials the user
+     * typed were never applied at all, and the reader sat in a reconnect loop
+     * against a network it had been told about but could not be configured for.
+     *
+     * ApplicationControlled is chip's own term for "the application owns the
+     * station". It keeps reporting connectivity from the events it observes,
+     * which is all the Matter side actually needs.
+     */
+    chip::DeviceLayer::ConnectivityMgr().SetWiFiStationMode(
+        chip::DeviceLayer::ConnectivityManager::kWiFiStationMode_ApplicationControlled);
+    ESP_LOGI(k_tag, "Wi-Fi station left under application control; net_manager owns the connection");
+#endif
+
     capture_onboarding_codes();
 
     ESP_LOGI(k_tag, "door lock on endpoint %u, %u fabric(s)", (unsigned)s_endpoint_id,
