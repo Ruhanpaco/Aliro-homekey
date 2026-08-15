@@ -14,25 +14,30 @@ static const char *const k_tag = "nfc/m5compat";
 
 esp_err_t m5nfc_init(void)
 {
+    /*
+     * Only the selected bus's pins are set. A Kconfig symbol behind
+     * "depends on" does not exist at all when the dependency is false, so
+     * naming the I2C pins in an SPI build is a compile error, not a default.
+     */
     const pn532_config_t cfg = {
+        .rst_pin = CONFIG_PN532_RST_PIN,
 #if CONFIG_PN532_BUS_I2C
         .bus = PN532_BUS_I2C,
+        .i2c_sda = CONFIG_PN532_I2C_SDA,
+        .i2c_scl = CONFIG_PN532_I2C_SCL,
+        .i2c_freq_hz = CONFIG_PN532_I2C_FREQ_HZ,
+        .i2c_addr = CONFIG_PN532_I2C_ADDR,
 #elif CONFIG_PN532_BUS_SPI
         .bus = PN532_BUS_SPI,
-#else
-#error "PN532: no bus selected in menuconfig"
-#endif
         .spi_host = CONFIG_PN532_SPI_HOST,
         .spi_sck = CONFIG_PN532_SPI_SCK,
         .spi_miso = CONFIG_PN532_SPI_MISO,
         .spi_mosi = CONFIG_PN532_SPI_MOSI,
         .spi_cs = CONFIG_PN532_SPI_CS,
         .spi_freq_hz = CONFIG_PN532_SPI_FREQ_HZ,
-        .i2c_sda = CONFIG_PN532_I2C_SDA,
-        .i2c_scl = CONFIG_PN532_I2C_SCL,
-        .i2c_freq_hz = CONFIG_PN532_I2C_FREQ_HZ,
-        .i2c_addr = CONFIG_PN532_I2C_ADDR,
-        .rst_pin = CONFIG_PN532_RST_PIN,
+#else
+#error "PN532: no bus selected in menuconfig"
+#endif
     };
 
     ESP_LOGI(k_tag, "PN532 on %s", cfg.bus == PN532_BUS_I2C ? "I2C" : "SPI");
