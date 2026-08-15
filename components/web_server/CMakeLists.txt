@@ -1,34 +1,41 @@
 # The UI is embedded in the application rather than kept on a filesystem
 # partition, so one firmware.bin carries the reader and its interface together.
-# The cost is that every byte of it is app-partition space -- and it is ~98 KB
-# of HTML, CSS and JavaScript.
+# The cost is that every byte of it is app-partition space, so compress it
+# first: gzip takes ~77% off and browsers inflate it from Content-Encoding.
 #
-# So compress it first. gzip takes about 77% off, browsers decompress it
-# transparently from a Content-Encoding header, and the ~76 KB saved stays
-# saved. Done through Python rather than a gzip binary because ESP-IDF's build
-# system is Python and a host gzip is not guaranteed.
-set(_web_dir "${CMAKE_CURRENT_BINARY_DIR}/web")
-file(MAKE_DIRECTORY "${_web_dir}")
-
+# Guarded on CMAKE_BUILD_EARLY_EXPANSION. ESP-IDF runs every component's
+# CMakeLists twice -- once in a cut-down pass that only collects REQUIRES, with
+# most variables (${python} among them) undefined. Doing the work in that pass
+# fails with an empty command line.
 set(_embed_files "")
-foreach(_page index setup)
-    set(_src "${COMPONENT_DIR}/web/${_page}.html")
-    set(_gz "${_web_dir}/${_page}.html.gz")
 
-    # mtime=0 so the same source always produces the same bytes.
-    execute_process(
-        COMMAND ${python} -c
-            "import gzip,sys; open(sys.argv[2],'wb').write(gzip.compress(open(sys.argv[1],'rb').read(),9,mtime=0))"
-            "${_src}" "${_gz}"
-        RESULT_VARIABLE _gz_result)
-    if(NOT _gz_result EQUAL 0)
-        message(FATAL_ERROR "web_server: could not compress ${_src}")
+if(NOT CMAKE_BUILD_EARLY_EXPANSION)
+    set(_web_dir "${CMAKE_CURRENT_BINARY_DIR}/web")
+    file(MAKE_DIRECTORY "${_web_dir}")
+
+    if(NOT python)
+        set(python "python3")
     endif()
 
-    # Re-run CMake, and so re-compress, whenever the page is edited.
-    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_src}")
-    list(APPEND _embed_files "${_gz}")
-endforeach()
+    foreach(_page index setup)
+        set(_src "${COMPONENT_DIR}/web/${_page}.html")
+        set(_gz "${_web_dir}/${_page}.html.gz")
+
+        execute_process(
+            COMMAND "${python}" "${COMPONENT_DIR}/../../tools/gzip_file.py" "${_src}" "${_gz}"
+            RESULT_VARIABLE _gz_result
+            OUTPUT_VARIABLE _gz_output
+            ERROR_VARIABLE _gz_output)
+        if(NOT _gz_result EQUAL 0)
+            message(FATAL_ERROR "web_server: could not compress ${_src}\n${_gz_output}")
+        endif()
+        message(STATUS "web_server: ${_gz_output}")
+
+        # Re-run CMake, and so re-compress, whenever the page is edited.
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_src}")
+        list(APPEND _embed_files "${_gz}")
+    endforeach()
+endif()
 
 idf_component_register(SRCS         "web_server.c" "log_ring.c"
                        INCLUDE_DIRS "include"
