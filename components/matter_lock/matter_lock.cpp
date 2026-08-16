@@ -534,6 +534,74 @@ extern "C" esp_err_t matter_lock_open_commissioning_window(void)
                                                                                                        : ESP_FAIL;
 }
 
+extern "C" esp_err_t matter_lock_get_fabrics(matter_lock_fabric_t *out, size_t max, size_t *count)
+{
+    if (!out || !count) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    *count = 0;
+    if (!s_running) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    chip::DeviceLayer::PlatformMgr().LockChipStack();
+    for (const chip::FabricInfo &fabric : chip::Server::GetInstance().GetFabricTable()) {
+        if (*count >= max) {
+            break;
+        }
+        matter_lock_fabric_t &entry = out[*count];
+        entry.index = fabric.GetFabricIndex();
+        entry.vendor_id = chip::to_underlying(fabric.GetVendorId());
+        entry.fabric_id = fabric.GetFabricId();
+        entry.node_id = fabric.GetNodeId();
+
+        entry.label[0] = '\0';
+        const chip::CharSpan label = fabric.GetFabricLabel();
+        if (!label.empty()) {
+            const size_t len = label.size() < sizeof(entry.label) - 1 ? label.size() : sizeof(entry.label) - 1;
+            memcpy(entry.label, label.data(), len);
+            entry.label[len] = '\0';
+        }
+        (*count)++;
+    }
+    chip::DeviceLayer::PlatformMgr().UnlockChipStack();
+    return ESP_OK;
+}
+
+static void remove_fabric(intptr_t index)
+{
+    const chip::FabricIndex fabric_index = static_cast<chip::FabricIndex>(index);
+    const CHIP_ERROR err = chip::Server::GetInstance().GetFabricTable().Delete(fabric_index);
+    if (err != CHIP_NO_ERROR) {
+        ESP_LOGE(k_tag, "could not remove fabric %u: %" CHIP_ERROR_FORMAT, (unsigned)fabric_index, err.Format());
+        return;
+    }
+    ESP_LOGW(k_tag, "fabric %u removed from the web UI; that controller can no longer reach this lock",
+             (unsigned)fabric_index);
+}
+
+extern "C" esp_err_t matter_lock_remove_fabric(uint8_t fabric_index)
+{
+    if (!s_running) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (fabric_index == chip::kUndefinedFabricIndex) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    /*
+     * Scheduled rather than called: Delete() tears down sessions and fires the
+     * fabric delegates, including ours, and all of that belongs to the Matter
+     * task. The web request only reports that the removal was accepted -- the
+     * delegate does the rest, and the page will see the new fabric count on its
+     * next poll.
+     */
+    return chip::DeviceLayer::PlatformMgr().ScheduleWork(remove_fabric, static_cast<intptr_t>(fabric_index)) ==
+                   CHIP_NO_ERROR
+               ? ESP_OK
+               : ESP_FAIL;
+}
+
 extern "C" esp_err_t matter_lock_release_reader_config(void)
 {
     if (!s_running) {

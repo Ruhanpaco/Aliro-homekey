@@ -530,6 +530,13 @@ main{padding:0 1.5rem 1.5rem;height:100%;overflow-y:auto;background:var(--color-
                   </div>
                 </div>
                 <dl id="st_matter"></dl>
+                <div id="matter_fabrics_row" class="hidden space-y-2">
+                  <div class="k text-xs text-muted">Controllers</div>
+                  <div id="matter_fabrics" class="space-y-2"></div>
+                  <p class="text-xs text-muted">Every controller here shows this lock as its own accessory
+                    and can open the door. Two entries mean two apps, which is either deliberate or a
+                    leftover from a controller that was never removed properly.</p>
+                </div>
                 <div id="matter_pairing" class="space-y-2">
                   <div class="stat-box">
                     <div class="k">Pairing code</div>
@@ -1383,6 +1390,7 @@ function renderStatus(s) {
           : badge("Waiting to pair", "warning")],
       ["Reader identity", s.matter.reader_configured ? badge("Provisioned", "success") : badge("Not set", "ghost")],
     ]);
+    renderFabrics(s.matter.fabric_list || []);
     $("matter_reader_reset_row").classList.toggle("hidden", !s.matter.reader_configured);
     $("matter_manual").textContent = s.matter.manual_code || "—";
     $("matter_pairing").classList.toggle("hidden", !s.matter.qr_url);
@@ -1413,6 +1421,44 @@ async function refreshStatus() {
     lastStatus = await api("/api/status");
     renderStatus(lastStatus);
   } catch { /* keep the last good view */ }
+}
+
+/* The CSA assigns these. Only the ones a phone wallet ships with are worth
+   naming; anything else is shown as its raw ID rather than guessed at. */
+const MATTER_VENDORS = {0x1349: "Apple", 0x6006: "Google", 0x1049: "Samsung SmartThings",
+                        0x1217: "Amazon", 0x131b: "Espressif", 0xfff1: "Test vendor"};
+
+function renderFabrics(list) {
+  const row = $("matter_fabrics_row");
+  const box = $("matter_fabrics");
+  if (!row || !box) return;
+  row.classList.toggle("hidden", list.length === 0);
+
+  box.innerHTML = "";
+  for (const f of list) {
+    const name = MATTER_VENDORS[f.vendor_id] || `Vendor 0x${f.vendor_id.toString(16).toUpperCase()}`;
+    const el = document.createElement("div");
+    el.className = "stat-box flex items-center gap-3 flex-wrap";
+    el.innerHTML =
+      `<div class="flex-1">
+         <div class="v">${name}${f.label ? ` · ${f.label}` : ""}</div>
+         <div class="k text-xs">fabric ${f.index} · node ${f.node_id}</div>
+       </div>`;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn btn-sm btn-outline";
+    btn.textContent = "Remove";
+    btn.addEventListener("click", async () => {
+      if (!confirm(`Remove ${name}? That controller loses access, and any home key it issued stops working.`)) return;
+      try {
+        await api("/api/matter/fabric/remove", {method: "POST", body: JSON.stringify({index: f.index})});
+        toast(`${name} removed.`);
+        setTimeout(refreshStatus, 800);
+      } catch (err) { toast(err.message, "error"); }
+    });
+    el.append(btn);
+    box.append(el);
+  }
 }
 
 function renderAliro() {

@@ -68,6 +68,22 @@ esp_err_t matter_lock_release_reader_config(void)
     return ESP_ERR_NOT_SUPPORTED;
 }
 
+esp_err_t matter_lock_get_fabrics(matter_lock_fabric_t *out, size_t max, size_t *count)
+{
+    (void)out;
+    (void)max;
+    if (count) {
+        *count = 0;
+    }
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+esp_err_t matter_lock_remove_fabric(uint8_t fabric_index)
+{
+    (void)fabric_index;
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
 void matter_lock_report_lock_state(bool locked)
 {
     (void)locked;

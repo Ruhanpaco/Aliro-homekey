@@ -681,6 +681,33 @@ static esp_err_t handle_get_status(httpd_req_t *req)
         cJSON_AddBoolToObject(matter, "running", matter_lock_running());
         cJSON_AddNumberToObject(matter, "fabrics", matter_lock_fabric_count());
         cJSON_AddBoolToObject(matter, "reader_configured", matter_lock_reader_configured());
+
+        /*
+         * Each fabric is a separate ecosystem, and each one shows this device
+         * as its own accessory. Naming them is the only way to tell a second
+         * app you meant to add from one left behind by a controller that is
+         * long gone.
+         */
+        matter_lock_fabric_t fabrics[8];
+        size_t fabric_count = 0;
+        if (matter_lock_get_fabrics(fabrics, sizeof(fabrics) / sizeof(fabrics[0]), &fabric_count) == ESP_OK) {
+            cJSON *list = cJSON_AddArrayToObject(matter, "fabric_list");
+            for (size_t i = 0; list && i < fabric_count; i++) {
+                cJSON *entry = cJSON_CreateObject();
+                if (!entry) {
+                    break;
+                }
+                char hex[19];
+                cJSON_AddNumberToObject(entry, "index", fabrics[i].index);
+                cJSON_AddNumberToObject(entry, "vendor_id", fabrics[i].vendor_id);
+                snprintf(hex, sizeof(hex), "0x%016llX", (unsigned long long)fabrics[i].fabric_id);
+                cJSON_AddStringToObject(entry, "fabric_id", hex);
+                snprintf(hex, sizeof(hex), "0x%016llX", (unsigned long long)fabrics[i].node_id);
+                cJSON_AddStringToObject(entry, "node_id", hex);
+                cJSON_AddStringToObject(entry, "label", fabrics[i].label);
+                cJSON_AddItemToArray(list, entry);
+            }
+        }
         cJSON_AddStringToObject(matter, "manual_code", matter_lock_manual_code());
         cJSON_AddStringToObject(matter, "qr_url", matter_lock_qr_url());
     }
@@ -872,6 +899,38 @@ static esp_err_t handle_post_matter_pair(httpd_req_t *req)
         return send_json_response(req, false, NULL, "could not open the commissioning window", NULL);
     }
     return send_json_response(req, true, "Pairing open", NULL, NULL);
+}
+
+static esp_err_t handle_post_matter_fabric_remove(httpd_req_t *req)
+{
+    REQUIRE_AUTH(req);
+    if (!matter_lock_available()) {
+        httpd_resp_set_status(req, "501 Not Implemented");
+        return send_json_response(req, false, NULL, "this firmware was built without Matter", NULL);
+    }
+
+    char *body = read_body(req);
+    if (!body) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        return send_json_response(req, false, NULL, "empty or oversized request body", NULL);
+    }
+
+    cJSON *root = cJSON_Parse(body);
+    free(body);
+    const cJSON *index = root ? cJSON_GetObjectItem(root, "index") : NULL;
+    if (!cJSON_IsNumber(index) || index->valueint <= 0 || index->valueint > 254) {
+        cJSON_Delete(root);
+        httpd_resp_set_status(req, "400 Bad Request");
+        return send_json_response(req, false, NULL, "which fabric?", NULL);
+    }
+    const uint8_t fabric_index = (uint8_t)index->valueint;
+    cJSON_Delete(root);
+
+    if (matter_lock_remove_fabric(fabric_index) != ESP_OK) {
+        httpd_resp_set_status(req, "500 Internal Server Error");
+        return send_json_response(req, false, NULL, "could not remove that fabric", NULL);
+    }
+    return send_json_response(req, true, "Removing that controller", NULL, NULL);
 }
 
 static esp_err_t handle_post_matter_reader_reset(httpd_req_t *req)
@@ -1499,6 +1558,10 @@ esp_err_t web_server_start(const web_server_hooks_t *hooks)
         {.uri = "/api/matter/reader/reset",
          .method = HTTP_POST,
          .handler = handle_post_matter_reader_reset,
+         .is_websocket = false},
+        {.uri = "/api/matter/fabric/remove",
+         .method = HTTP_POST,
+         .handler = handle_post_matter_fabric_remove,
          .is_websocket = false},
 
         /* WebSocket endpoint */

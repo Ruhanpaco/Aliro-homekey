@@ -89,6 +89,41 @@ bool matter_lock_running(void);
 /** @brief Number of fabrics this device has been commissioned into. */
 size_t matter_lock_fabric_count(void);
 
+/** @brief One commissioned administrator. */
+typedef struct {
+    uint8_t index;      /*!< Fabric index, as used to remove it */
+    uint16_t vendor_id; /*!< Who commissioned it: 0x1349 is Apple, 0x6006 Google, 0x1049 Samsung */
+    uint64_t fabric_id;
+    uint64_t node_id; /*!< This device's node ID within that fabric */
+    char label[33];   /*!< The administrator's own name for the fabric, often empty */
+} matter_lock_fabric_t;
+
+/**
+ * @brief List the administrators this device answers to.
+ *
+ * Every fabric is a separate ecosystem holding its own credentials, and each
+ * one shows the device as its own accessory. Two entries mean two apps can
+ * open this door, which is either deliberate or a leftover.
+ *
+ * @param[out] out   Array to fill
+ * @param[in]  max   Entries @p out can hold
+ * @param[out] count Entries written
+ */
+esp_err_t matter_lock_get_fabrics(matter_lock_fabric_t *out, size_t max, size_t *count);
+
+/**
+ * @brief Remove an administrator, and everything it provisioned.
+ *
+ * The same thing a controller does when you delete the accessory from its app,
+ * and the way out when the app that owned a fabric is gone and cannot be asked.
+ * Its users and credentials go with it; if it held the Aliro reader identity
+ * and nothing else is enrolled, that goes too.
+ *
+ * Removing the last fabric reopens commissioning rather than leaving a lock no
+ * one can reach.
+ */
+esp_err_t matter_lock_remove_fabric(uint8_t fabric_index);
+
 /** @brief True when a controller has given us an Aliro reader identity. */
 bool matter_lock_reader_configured(void);
 
