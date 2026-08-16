@@ -95,7 +95,26 @@ full exchange and the key-slot lookup named the credential — `granted: 'matter
 ev1' (standard transaction)`. The standard path is what a phone runs the first
 time it meets a reader, so that is the whole protocol proven end to end.
 
-The Google and Samsung wallets remain untested.
+The Google and Samsung wallets remain untested, and the first attempt showed why
+that is harder than finding someone with the right phone.
+
+A Galaxy owner tried and got as far as *"unable to pair since I don't have a
+SmartThings Hub"*. That is not a fault in this firmware: the device advertises
+for commissioning over the same BLE path Apple uses, and nothing reached it.
+Samsung's Digital Home Key is added to Samsung Wallet **during** the lock's
+Matter onboarding in the SmartThings app, so SmartThings has to be the
+administrator, and SmartThings needs a hub to be a Matter administrator at all.
+A Galaxy phone on its own cannot hold the fabric.
+
+Worth telling a prospective tester: the hub does not have to be a hub. A
+SmartThings Station, a 2022-or-later Samsung TV, a Family Hub fridge and some
+Samsung soundbars all act as one, so someone may already own the missing piece.
+
+Home Assistant is the useful half-test. Its Matter server commissions over Wi-Fi
+with no hub, and can drive the Door Lock cluster including
+`SetAliroReaderConfig`, which would prove the Matter and Aliro plumbing works
+under an administrator that is not Apple. It will not put a key in any wallet,
+so it answers half the question and should not be reported as more than that.
 
 ### Express Mode is not coming, and it is not a bug
 

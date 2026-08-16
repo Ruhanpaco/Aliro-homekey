@@ -9,6 +9,14 @@ body:
         provisions and taps is genuinely unknown, so a result either way is one
         of the most useful things anyone can contribute right now.
 
+        **Samsung needs a hub before it needs a phone.** The Digital Home Key is
+        added to Samsung Wallet during the lock's Matter onboarding in
+        SmartThings, and SmartThings cannot be a Matter administrator without a
+        hub. It does not have to look like a hub: a SmartThings Station, a
+        2022-or-later Samsung TV, a Family Hub fridge and some soundbars all
+        count. A Galaxy on its own cannot do it, and "unable to pair" in that
+        situation is not a fault in this firmware.
+
   - type: dropdown
     id: wallet
     attributes:
