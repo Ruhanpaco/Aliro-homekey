@@ -312,6 +312,24 @@ static esp_err_t pn532_command(pn532_t *dev, uint8_t cmd, const uint8_t *params,
 
 static esp_err_t bus_init(pn532_t *dev)
 {
+    /*
+     * Once per boot, and tracked separately from whether the PN532 answered.
+     *
+     * These are two different things and conflating them broke a retry on
+     * hardware: the bus came up, the chip did not reply, so the caller's
+     * "started" flag stayed false -- and the next attempt tried to initialize
+     * an SPI host that was already initialized:
+     *
+     *     E nfc/pn532: bus_init(325): SPI bus init failed
+     *
+     * That turned "the chip is not answering, which is a wiring problem you
+     * can fix" into "the bus is unusable until reboot", which is not.
+     */
+    static bool configured;
+    if (configured) {
+        return ESP_OK;
+    }
+
     if (is_spi(dev)) {
         const spi_host_device_t host = dev->cfg.spi_host == 2 ? SPI3_HOST : SPI2_HOST;
         const spi_bus_config_t bus = {
@@ -333,7 +351,9 @@ static esp_err_t bus_init(pn532_t *dev)
              * of these every byte arrives bit-reversed and nothing matches. */
             .flags = SPI_DEVICE_BIT_LSBFIRST,
         };
-        return spi_bus_add_device(host, &devcfg, &dev->spi);
+        ESP_RETURN_ON_ERROR(spi_bus_add_device(host, &devcfg, &dev->spi), k_tag, "SPI device add failed");
+        configured = true;
+        return ESP_OK;
     }
 
     const i2c_master_bus_config_t bus = {
@@ -351,7 +371,10 @@ static esp_err_t bus_init(pn532_t *dev)
         .device_address = dev->cfg.i2c_addr ? dev->cfg.i2c_addr : 0x24,
         .scl_speed_hz = dev->cfg.i2c_freq_hz ? dev->cfg.i2c_freq_hz : 100000,
     };
-    return i2c_master_bus_add_device(dev->i2c_bus, &devcfg, &dev->i2c_dev);
+    ESP_RETURN_ON_ERROR(i2c_master_bus_add_device(dev->i2c_bus, &devcfg, &dev->i2c_dev), k_tag,
+                        "I2C device add failed");
+    configured = true;
+    return ESP_OK;
 }
 
 /** @brief Pulse RSTPD_N if the board wired it, so a wedged chip comes back. */
