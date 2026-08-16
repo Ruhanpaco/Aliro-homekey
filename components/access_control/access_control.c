@@ -297,6 +297,22 @@ esp_err_t access_control_init(const lock_config_t *lock)
     return ESP_OK;
 }
 
+esp_err_t access_control_set_unlock_ms(uint32_t unlock_ms)
+{
+    ESP_RETURN_ON_FALSE(unlock_ms > 0, ESP_ERR_INVALID_ARG, k_tag, "an unlock has to last some time");
+    if (unlock_ms == s_lock.unlock_ms) {
+        return ESP_OK;
+    }
+    ESP_LOGI(k_tag, "unlock duration is now %u ms (was %u)", (unsigned)unlock_ms, (unsigned)s_lock.unlock_ms);
+    s_lock.unlock_ms = unlock_ms;
+    return ESP_OK;
+}
+
+uint32_t access_control_unlock_ms(void)
+{
+    return s_lock.unlock_ms;
+}
+
 esp_err_t access_control_unlock(void)
 {
     ESP_RETURN_ON_FALSE(s_relock_timer, ESP_ERR_INVALID_STATE, k_tag, "access control not initialized");

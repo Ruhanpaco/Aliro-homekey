@@ -20,6 +20,7 @@
 
 #include "matter_aliro_delegate.h"
 
+#include "access_control.h"
 #include "app_config.h"
 
 #include <esp_log.h>
@@ -239,7 +240,22 @@ static esp_err_t on_attribute_update(attribute::callback_type_t type, uint16_t e
                                      uint32_t attribute_id, esp_matter_attr_val_t *val, void *priv_data)
 {
     /* Lock and unlock arrive as commands, not attribute writes, and are
-     * handled in matter_lock_store.cpp. Nothing else here needs driving. */
+     * handled in matter_lock_store.cpp. AutoRelockTime is the one attribute a
+     * controller can write that this device has to act on. */
+    if (type == attribute::PRE_UPDATE && cluster_id == Id &&
+        attribute_id == chip::app::Clusters::DoorLock::Attributes::AutoRelockTime::Id && val) {
+        const uint32_t seconds = val->val.u32;
+        if (seconds == 0) {
+            /* Zero means "do not relock on your own". Nothing here can honour
+             * that: the output is a strike or a relay, and leaving it energised
+             * indefinitely is a door left open, not a setting. */
+            ESP_LOGW(k_tag, "a controller asked for no auto-relock; keeping %u ms",
+                     (unsigned)access_control_unlock_ms());
+            return ESP_ERR_INVALID_ARG;
+        }
+        ESP_LOGI(k_tag, "a controller set AutoRelockTime to %u s", (unsigned)seconds);
+        return access_control_set_unlock_ms(seconds * 1000);
+    }
     return ESP_OK;
 }
 
@@ -363,6 +379,31 @@ extern "C" esp_err_t matter_lock_start(const matter_lock_hooks_t *hooks)
 
     if (cluster::door_lock::feature::aliro_provisioning::add(lock_cluster) != ESP_OK) {
         ESP_LOGE(k_tag, "Aliro provisioning feature refused; no controller can provision this reader");
+    }
+
+    /*
+     * AutoRelockTime, which esp-matter's own Aliro example creates and this did
+     * not. The cluster server reads it on every remote unlock, and without it
+     * every unlock logged
+     *
+     *     E chip[ZCL]: Failed to read DoorLock attribute: attribute=0x23,
+     *                  status=0x86
+     *
+     * -- unsupported attribute. A lock that cannot say how long it stays open
+     * is a lock that never relocks itself as far as a controller is concerned,
+     * which is not what this one does: access_control has always driven the
+     * output back after its configured time. Reporting that number is simply
+     * the truth, and it is the one difference between this endpoint and the
+     * reference one that Apple is known to issue a home key against.
+     *
+     * Seconds here, milliseconds in access_control, and the attribute is
+     * writable -- a controller that changes it changes the GPIO timing too, in
+     * on_attribute_update below. Two places holding the same number and only
+     * one of them being obeyed is how this goes wrong later.
+     */
+    const uint32_t relock_s = (access_control_unlock_ms() + 999) / 1000;
+    if (!cluster::door_lock::attribute::create_auto_relock_time(lock_cluster, relock_s)) {
+        ESP_LOGE(k_tag, "could not publish AutoRelockTime");
     }
 
     s_endpoint_id = endpoint::get_id(endpoint);

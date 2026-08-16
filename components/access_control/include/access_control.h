@@ -104,6 +104,20 @@ esp_err_t access_control_unlock(void);
 /** @brief Drive the lock output back to locked now, cancelling any relock timer. */
 esp_err_t access_control_lock(void);
 
+/**
+ * @brief How long an unlock lasts before the output goes back to locked.
+ *
+ * The Door Lock cluster calls the same thing AutoRelockTime and lets a
+ * controller write it, so this exists to keep the two from disagreeing: what
+ * the lock reports over Matter has to be what the GPIO actually does.
+ *
+ * @param[in] unlock_ms Milliseconds. Takes effect on the next unlock.
+ */
+esp_err_t access_control_set_unlock_ms(uint32_t unlock_ms);
+
+/** @brief The current unlock duration in milliseconds. */
+uint32_t access_control_unlock_ms(void);
+
 #ifdef __cplusplus
 }
 #endif
