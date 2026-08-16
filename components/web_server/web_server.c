@@ -31,6 +31,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <inttypes.h>
+#include <unistd.h> /* close(), for the httpd socket-close hook */
 
 static const char *const k_tag = "aliro/web";
 static const size_t k_max_body = 4096;
@@ -436,6 +437,20 @@ static void ws_remove_client(int fd)
     xSemaphoreGive(s_ws_clients_mutex);
 }
 
+/**
+ * @brief httpd's socket-close hook.
+ *
+ * Installing this replaces httpd's own close, so the descriptor has to be
+ * closed here too -- leaving that out leaks a socket per disconnect, and there
+ * are only four.
+ */
+static void ws_socket_closed(httpd_handle_t handle, int fd)
+{
+    (void)handle;
+    ws_remove_client(fd);
+    close(fd);
+}
+
 static void ws_broadcast(const uint8_t *payload, size_t len, httpd_ws_type_t type)
 {
     if (xSemaphoreTake(s_ws_clients_mutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
@@ -466,10 +481,21 @@ static void ws_send_task(void *arg)
                 .payload = frame->payload,
             };
 
-            esp_err_t ret = httpd_ws_send_frame_async(s_server, frame->fd, &ws_pkt);
-            if (ret != ESP_OK) {
-                ESP_LOGW(k_tag, "WebSocket send failed: %s", esp_err_to_name(ret));
+            /*
+             * A browser that navigated away, reloaded, or dropped off a weak
+             * link leaves a socket httpd has already closed. Sending to it
+             * comes back ESP_ERR_INVALID_ARG, which is how this used to find
+             * out -- one warning per dead client per push, on a device where
+             * the page reconnects every time the Wi-Fi hiccups. Ask first.
+             */
+            if (httpd_ws_get_fd_info(s_server, frame->fd) != HTTPD_WS_CLIENT_WEBSOCKET) {
                 ws_remove_client(frame->fd);
+            } else {
+                const esp_err_t ret = httpd_ws_send_frame_async(s_server, frame->fd, &ws_pkt);
+                if (ret != ESP_OK) {
+                    ESP_LOGW(k_tag, "WebSocket send failed: %s", esp_err_to_name(ret));
+                    ws_remove_client(frame->fd);
+                }
             }
 
             if (frame->payload != frame->inline_payload) {
@@ -1326,6 +1352,14 @@ esp_err_t web_server_start(const web_server_hooks_t *hooks)
      * the oldest idle connection makes way for a new one.
      */
     cfg.max_open_sockets = 4;
+
+    /*
+     * Drop a WebSocket client the moment its socket closes, rather than on the
+     * next push that fails against it. With only four sockets, a stale entry is
+     * not just noise: the registry can fill with fds that are gone while a real
+     * browser is refused a slot.
+     */
+    cfg.close_fn = ws_socket_closed;
 
     /* Initialize WebSocket infrastructure */
     s_ws_clients_mutex = xSemaphoreCreateMutex();
