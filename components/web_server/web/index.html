@@ -1442,7 +1442,7 @@ function renderFabrics(list) {
     el.innerHTML =
       `<div class="flex-1">
          <div class="v">${name}${f.label ? ` · ${f.label}` : ""}</div>
-         <div class="k text-xs">fabric ${f.index} · node ${f.node_id}</div>
+         <div class="k text-xs">fabric ${f.index} · this lock is node ${f.node_id} to it</div>
        </div>`;
     const btn = document.createElement("button");
     btn.type = "button";
@@ -1453,7 +1453,7 @@ function renderFabrics(list) {
       try {
         await api("/api/matter/fabric/remove", {method: "POST", body: JSON.stringify({index: f.index})});
         toast(`${name} removed.`);
-        setTimeout(refreshStatus, 800);
+        refreshStatus();
       } catch (err) { toast(err.message, "error"); }
     });
     el.append(btn);

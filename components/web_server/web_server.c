@@ -926,11 +926,15 @@ static esp_err_t handle_post_matter_fabric_remove(httpd_req_t *req)
     const uint8_t fabric_index = (uint8_t)index->valueint;
     cJSON_Delete(root);
 
-    if (matter_lock_remove_fabric(fabric_index) != ESP_OK) {
+    const esp_err_t err = matter_lock_remove_fabric(fabric_index);
+    if (err != ESP_OK) {
         httpd_resp_set_status(req, "500 Internal Server Error");
-        return send_json_response(req, false, NULL, "could not remove that fabric", NULL);
+        return send_json_response(req, false, NULL,
+                                  err == ESP_ERR_INVALID_ARG ? "that is not a fabric index"
+                                                             : "the Matter stack refused to remove that controller",
+                                  NULL);
     }
-    return send_json_response(req, true, "Removing that controller", NULL, NULL);
+    return send_json_response(req, true, "Controller removed", NULL, NULL);
 }
 
 static esp_err_t handle_post_matter_reader_reset(httpd_req_t *req)
@@ -1459,7 +1463,13 @@ esp_err_t web_server_start(const web_server_hooks_t *hooks)
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.uri_match_fn = httpd_uri_match_wildcard;
     cfg.max_uri_handlers = 32; /* API, WebSocket, OTA, setup portal and OS connectivity probes */
-    cfg.stack_size = 6144;
+    /*
+     * Deeper than httpd's default because two handlers do real work on this
+     * task rather than handing it off: the OTA writer, and removing a Matter
+     * fabric, which runs chip's fabric teardown and our delegates -- NVS
+     * writes and credential withdrawal -- inside the request.
+     */
+    cfg.stack_size = 8192;
     cfg.lru_purge_enable = true;
 
     /*

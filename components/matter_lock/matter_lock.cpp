@@ -568,18 +568,6 @@ extern "C" esp_err_t matter_lock_get_fabrics(matter_lock_fabric_t *out, size_t m
     return ESP_OK;
 }
 
-static void remove_fabric(intptr_t index)
-{
-    const chip::FabricIndex fabric_index = static_cast<chip::FabricIndex>(index);
-    const CHIP_ERROR err = chip::Server::GetInstance().GetFabricTable().Delete(fabric_index);
-    if (err != CHIP_NO_ERROR) {
-        ESP_LOGE(k_tag, "could not remove fabric %u: %" CHIP_ERROR_FORMAT, (unsigned)fabric_index, err.Format());
-        return;
-    }
-    ESP_LOGW(k_tag, "fabric %u removed from the web UI; that controller can no longer reach this lock",
-             (unsigned)fabric_index);
-}
-
 extern "C" esp_err_t matter_lock_remove_fabric(uint8_t fabric_index)
 {
     if (!s_running) {
@@ -590,16 +578,27 @@ extern "C" esp_err_t matter_lock_remove_fabric(uint8_t fabric_index)
     }
 
     /*
-     * Scheduled rather than called: Delete() tears down sessions and fires the
-     * fabric delegates, including ours, and all of that belongs to the Matter
-     * task. The web request only reports that the removal was accepted -- the
-     * delegate does the rest, and the page will see the new fabric count on its
-     * next poll.
+     * Done here under the stack lock rather than handed to the Matter task.
+     * ScheduleWork only reports whether the work was *queued*, so the first
+     * version of this answered "Removing that controller" to the browser
+     * whatever happened next and swallowed the actual result -- which is
+     * exactly what a button that appears to do nothing looks like.
+     *
+     * Delete() tears down that fabric's sessions and runs the fabric
+     * delegates, ours included, so the credentials and the reader identity are
+     * gone by the time this returns and the page's next poll shows the truth.
      */
-    return chip::DeviceLayer::PlatformMgr().ScheduleWork(remove_fabric, static_cast<intptr_t>(fabric_index)) ==
-                   CHIP_NO_ERROR
-               ? ESP_OK
-               : ESP_FAIL;
+    chip::DeviceLayer::PlatformMgr().LockChipStack();
+    const CHIP_ERROR err = chip::Server::GetInstance().GetFabricTable().Delete(fabric_index);
+    chip::DeviceLayer::PlatformMgr().UnlockChipStack();
+
+    if (err != CHIP_NO_ERROR) {
+        ESP_LOGE(k_tag, "could not remove fabric %u: %" CHIP_ERROR_FORMAT, (unsigned)fabric_index, err.Format());
+        return ESP_FAIL;
+    }
+    ESP_LOGW(k_tag, "fabric %u removed from the web UI; that controller can no longer reach this lock",
+             (unsigned)fabric_index);
+    return ESP_OK;
 }
 
 extern "C" esp_err_t matter_lock_release_reader_config(void)
