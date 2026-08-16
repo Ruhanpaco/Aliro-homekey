@@ -1,20 +1,35 @@
-# Aliro HomeKey
+<p align="center">
+  <img src="https://ruhanpaco.github.io/Aliro-homekey/assets/aliro-mark.svg" width="140" height="140" alt="Aliro HomeKey">
+</p>
 
-An open-source **Aliro reader for the ESP32**.
+<h1 align="center">Aliro HomeKey</h1>
+
+<p align="center">
+  <strong>An open-source Aliro reader for the ESP32</strong><br>
+  <a href="https://ruhanpaco.github.io/Aliro-homekey">Website</a> ·
+  <a href="https://github.com/Ruhanpaco/Aliro-homekey/releases">Releases</a> ·
+  <a href="docs/ARCHITECTURE.md">Architecture</a> ·
+  <a href="docs/ROADMAP.md">Roadmap</a>
+</p>
 
 Tap a phone or watch to a small ESP32 board and a door opens — where the phone
 can be an iPhone, a Pixel or a Galaxy, because the reader speaks
 [Aliro](https://csa-iot.org/all-solutions/aliro/), the cross-ecosystem standard
 for mobile access credentials, rather than any one vendor's protocol.
 
-> **Status: v0.1 — it compiles; it has never been run on a board.** The
-> project structure, the Aliro transaction plumbing, the configuration web
-> service, MQTT and a serial debug console are in place, and CI builds them
-> for ESP32 and ESP32-S3 on ESP-IDF 5.4 and 5.5. Nobody has flashed it yet, so
-> "it boots" is an expectation, not a result. There is also **no NFC chip
-> driver**, so no card is ever detected and no Aliro transaction ever runs.
-> See [docs/FIRST-TEST.md](docs/FIRST-TEST.md) to put it on a board, and
-> [docs/ROADMAP.md](docs/ROADMAP.md) for what is missing.
+> **Status: v0.4 beta — a phone opens the door.** Verified on an
+> ESP32-WROOM-32 with a PN532: commissioned into Apple Home, an Aliro
+> credential provisioned over Matter, and a tap read on both transaction paths
+> — a fast one in 569 ms and a standard one in 2047 ms, each ending with the
+> lock output driven. Lock and unlock from the Home app, OTA with rollback, and
+> the configuration UI all work alongside it.
+>
+> What it is not: certified. Apple commissions it past an "uncertified
+> accessory" warning, and Express Mode — tapping a locked phone — is granted
+> only to Apple-approved commercial locks, so opening the door means picking
+> the key in Wallet first. Espressif's own Aliro reference behaves the same
+> way; [docs/ROADMAP.md](docs/ROADMAP.md) has the detail and the sources.
+> Google and Samsung wallets are untested.
 
 ## What this is, in plain terms
 
@@ -193,9 +208,10 @@ copy from the firmware's own page.
 
 ## Contributing
 
-Contributions are welcome — especially a real NFC frontend, and a verified
-build on real hardware. See [CONTRIBUTING.md](CONTRIBUTING.md) for the bar a
-contribution has to clear, where to start, and the licensing rules.
+Contributions are welcome — a bug report, a pin table fix, a driver for
+another NFC frontend, a wallet nobody has tried yet. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for how to set up, what a change has to
+clear, and the rules on AI-assisted work.
 
 ## Licence
 
