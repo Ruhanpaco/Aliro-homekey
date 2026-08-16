@@ -43,6 +43,24 @@ CONFIG_LWIP_IPV6_NUM_ADDRESSES=6
 CONFIG_LWIP_HOOK_IP6_ROUTE_DEFAULT=y
 CONFIG_LWIP_HOOK_ND6_GET_GW_DEFAULT=y
 
+# --- Coming back after a reboot --------------------------------------------
+# A controller watches a lock through a subscription. Without persistence the
+# device throws every one away when it powers down, which is why every boot so
+# far has said
+#
+#     chip[IM]: No subscriptions to resume
+#
+# and why Apple Home sits on "Updating..." or "No Response" until it notices by
+# itself and rebuilds the subscription from its end. Persisting them lets the
+# device re-establish reporting as soon as it is back on the network.
+#
+# Known to be imperfect on ESP32: connectedhomeip #25013 and #28825 describe
+# resumption failing when minimal mDNS is not yet initialised at server start,
+# which is the ordering this device has. Worth having regardless -- the failure
+# mode with it on is the behaviour we already have with it off.
+CONFIG_CHIP_PERSIST_SUBSCRIPTIONS=y
+CONFIG_CHIP_SUBSCRIPTION_TIMEOUT_RESUMPTION=y
+
 # --- What we do not need from esp-matter -----------------------------------
 # This firmware already has an OTA page, a serial console and a web UI, so the
 # Matter equivalents are all cost and no benefit.
