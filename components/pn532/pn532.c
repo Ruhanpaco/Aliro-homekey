@@ -97,8 +97,12 @@ static bool is_spi(const pn532_t *dev)
  * at the bottom of that. Safe because the driver is a singleton and only the
  * reader task ever calls it.
  */
-static uint8_t s_bus_tx[PN532_FRAME_MAX + 1];
-static uint8_t s_bus_rx[PN532_FRAME_MAX + 1];
+/* WORD_ALIGNED_ATTR because these go to the SPI driver with a DMA channel
+ * attached, and DMA reads and writes want 4-byte aligned buffers. An unaligned
+ * RX buffer is the kind of fault that corrupts a byte here and there rather
+ * than failing outright, which is far worse to chase. */
+WORD_ALIGNED_ATTR static uint8_t s_bus_tx[PN532_FRAME_MAX + 1];
+WORD_ALIGNED_ATTR static uint8_t s_bus_rx[PN532_FRAME_MAX + 1];
 
 static esp_err_t bus_write(pn532_t *dev, const uint8_t *data, size_t len)
 {
@@ -145,8 +149,12 @@ static esp_err_t bus_read(pn532_t *dev, uint8_t *data, size_t len)
 static bool bus_ready(pn532_t *dev)
 {
     if (is_spi(dev)) {
-        const uint8_t tx[2] = {SPI_OP_STATUS_READ, 0x00};
-        uint8_t rx[2] = {0};
+        /* Same alignment rule as the buffers above: these reach DMA too. */
+        WORD_ALIGNED_ATTR static uint8_t tx[4];
+        WORD_ALIGNED_ATTR static uint8_t rx[4];
+        tx[0] = SPI_OP_STATUS_READ;
+        tx[1] = 0x00;
+        rx[0] = rx[1] = 0;
         const spi_transaction_t t = {.length = 16, .tx_buffer = tx, .rx_buffer = rx};
         if (spi_device_polling_transmit(dev->spi, (spi_transaction_t *)&t) != ESP_OK) {
             return false;
@@ -347,6 +355,12 @@ static esp_err_t bus_init(pn532_t *dev)
             .mode = 0,
             .spics_io_num = dev->cfg.spi_cs,
             .queue_size = 1,
+            /* Give the select line a couple of bit-times to settle either
+             * side of the clock. Not the millisecond the chip wants at wake --
+             * see wake() for that -- but it costs nothing and some clones are
+             * marginal without it. */
+            .cs_ena_pretrans = 2,
+            .cs_ena_posttrans = 2,
             /* The PN532 clocks SPI least-significant bit first. Without both
              * of these every byte arrives bit-reversed and nothing matches. */
             .flags = SPI_DEVICE_BIT_LSBFIRST,
@@ -399,11 +413,39 @@ static void hardware_reset(const pn532_t *dev)
     vTaskDelay(pdMS_TO_TICKS(10));
 }
 
+/**
+ * @brief Bring the chip out of low-power mode before talking to it.
+ *
+ * A PN532 powers up in a low-VBAT state and ignores the first traffic it sees.
+ * The documented remedy is activity on the select line followed by a dwell of
+ * about a millisecond -- which is why every Arduino driver holds NSS low and
+ * sleeps before its first command.
+ *
+ * That is not expressible with a hardware chip-select: the ESP32 asserts it
+ * only for the length of a transaction, microseconds at 1 MHz, and
+ * cs_ena_pretrans is capped at 16 bit-cycles. So the dwell is built from
+ * repetition instead -- a few harmless status reads, each toggling the line,
+ * spaced far enough apart to add up.
+ *
+ * Without this the first GetFirmwareVersion goes out to a chip that is not
+ * listening yet, and a retry 50 ms later repeats the same mistake:
+ *
+ *     E nfc/pn532: pn532_command(307): 0x02: no ACK
+ */
+static void wake(pn532_t *dev)
+{
+    for (int i = 0; i < 3; i++) {
+        (void)bus_ready(dev);
+        vTaskDelay(pdMS_TO_TICKS(2));
+    }
+}
+
 static esp_err_t pn532_start(pn532_t *dev)
 {
 
     ESP_RETURN_ON_ERROR(bus_init(dev), k_tag, "bus init failed");
     hardware_reset(dev);
+    wake(dev);
 
     /* The chip may be asleep; the first command after power-up is routinely
      * lost, so ask twice before believing it is absent. */
