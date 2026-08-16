@@ -1473,19 +1473,22 @@ esp_err_t web_server_start(const web_server_hooks_t *hooks)
     cfg.lru_purge_enable = true;
 
     /*
-     * Fewer than the default seven, because sockets are a system-wide budget
-     * rather than this server's alone. lwIP allows sixteen at most, and in a
-     * Matter build the stack below has already taken several for mDNS, CASE
-     * and commissioning, with the DHCP server and the captive DNS responder
-     * on top. Asking for seven plus a control socket left none, and the whole
-     * server failed to start with ENOBUFS -- which on a device whose only
-     * configuration path is that server means no way in at all.
+     * Four was too few, and the way it failed was not obvious.
      *
-     * This is a single-administrator configuration UI: a browser opens the
-     * page, a WebSocket and perhaps two API calls at once. With lru_purge on,
-     * the oldest idle connection makes way for a new one.
+     * lru_purge_enable means a new connection evicts the oldest idle one when
+     * the table is full -- and the WebSocket, which sits silent between pushes,
+     * is always the oldest idle one. A browser holding the socket open while
+     * it fetched the page, its assets and a status poll would fill four slots
+     * and the purge would take the WebSocket every time. The page reconnected,
+     * the log filled with drops, and it looked like a network fault rather
+     * than the server doing exactly what it was configured to do.
+     *
+     * Seven plus a control socket against CONFIG_LWIP_MAX_SOCKETS=16 in the
+     * Matter build, which leaves room for what the stack holds: mDNS, CASE,
+     * commissioning, and the captive DNS responder in setup mode. An earlier
+     * ENOBUFS at this figure was with a smaller lwIP budget, since raised.
      */
-    cfg.max_open_sockets = 4;
+    cfg.max_open_sockets = 7;
 
     /*
      * Drop a WebSocket client the moment its socket closes, rather than on the

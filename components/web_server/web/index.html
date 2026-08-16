@@ -1077,7 +1077,7 @@ let caps = null;
 let ws = null, wsReconnectTimer = null, wsBackoffMs = 1500;
 /* The last full /api/status. The WebSocket carries deltas, and rendering needs
    the whole object, so keep it rather than refetching on every tick. */
-let lastStatus = null;
+let lastStatus = null, lastFullStatus = 0;
 
 /* --- WebSocket support ------------------------------------------------- */
 
@@ -1419,6 +1419,7 @@ function renderStatus(s) {
 async function refreshStatus() {
   try {
     lastStatus = await api("/api/status");
+    lastFullStatus = Date.now();
     renderStatus(lastStatus);
   } catch { /* keep the last good view */ }
 }
@@ -1734,7 +1735,16 @@ $("btn_join").onclick = async () => {
     toast("Could not load configuration: " + err.message, "error");
   }
   refreshStatus();
-  setInterval(refreshStatus, 5000);
+  /* A poll every five seconds was a second copy of what the WebSocket already
+     pushes, and every one of them was a socket competing with the WebSocket
+     for a slot on a device that has seven. While the socket is live this is a
+     slow backstop for the fields the metrics tick does not carry -- fabrics,
+     OTA partitions, the network name. When it is not, it is the only source of
+     anything, so it speeds up. */
+  setInterval(() => {
+    const live = ws && ws.readyState === WebSocket.OPEN;
+    if (!live || Date.now() - lastFullStatus > 30000) refreshStatus();
+  }, 5000);
 })();
 </script>
 </body>
