@@ -16,20 +16,34 @@ config ALIRO_READER_GROUP_ID
 
 menu "NFC frontend"
 
+# Per target, because the ESP32 defaults are not merely a poor fit elsewhere:
+# GPIO 23 does not exist on the C3 at all, so a C3 image carrying them would
+# build, boot, and then fail to bring up the reader with nothing in the log to
+# say the pin was imaginary. The C3 numbers below avoid its flash pins (12-17)
+# and its strapping pins (2, 8, 9); the C6 and H2 avoid theirs.
+
 config ALIRO_NFC_SPI_SCK
     int "SPI SCK"
+    default 4 if IDF_TARGET_ESP32C3
+    default 6 if IDF_TARGET_ESP32C6 || IDF_TARGET_ESP32H2
     default 18
 
 config ALIRO_NFC_SPI_MISO
     int "SPI MISO"
+    default 5 if IDF_TARGET_ESP32C3
+    default 7 if IDF_TARGET_ESP32C6 || IDF_TARGET_ESP32H2
     default 19
 
 config ALIRO_NFC_SPI_MOSI
     int "SPI MOSI"
+    default 6 if IDF_TARGET_ESP32C3
+    default 10 if IDF_TARGET_ESP32C6 || IDF_TARGET_ESP32H2
     default 23
 
 config ALIRO_NFC_SPI_CS
     int "SPI CS"
+    default 7 if IDF_TARGET_ESP32C3
+    default 11 if IDF_TARGET_ESP32C6 || IDF_TARGET_ESP32H2
     default 5
 
 config ALIRO_NFC_IRQ
