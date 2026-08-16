@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://ruhanpaco.github.io/Aliro-homekey/sitemap.xml
