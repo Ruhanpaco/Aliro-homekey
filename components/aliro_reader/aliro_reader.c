@@ -291,6 +291,27 @@ esp_err_t aliro_reader_get_group_sub_identifier(uint8_t *out, size_t *out_len)
     return esp_aliro_reader_get_group_sub_identifier(s_reader.reader, out, out_len);
 }
 
+void aliro_reader_forget_fast_transactions(void)
+{
+    /*
+     * A stored persistent key belongs to the reader identity it was negotiated
+     * under. Change the identity and every one of them is scrap -- the SDK
+     * still tries them, fails to decrypt the phone's AUTH0 cryptogram, and
+     * falls back:
+     *
+     *     E engine: psa_decrypt_aes_gcm(96): Failed to decrypt the data: -149
+     *     W session: Fast transaction fallback to standard: no persistent key
+     *               matched AUTH0 cryptogram
+     *
+     * The tap still opens the door, and the SDK stores a fresh key alongside
+     * the dead one, so it is self-healing -- but it costs the first tap after
+     * every re-provisioning the difference between a fast transaction and a
+     * standard one, which on hardware was 569 ms against 2047 ms.
+     */
+    esp_aliro_clear_fast_transaction_storage();
+    ESP_LOGI(k_tag, "cleared stored fast-transaction keys; they belonged to the previous reader identity");
+}
+
 esp_err_t aliro_reader_pubkey_pem_from_raw(const uint8_t *raw, size_t raw_len, char *pem, size_t *pem_len)
 {
     return esp_aliro_get_pubkey_pem_from_raw_data(raw, raw_len, pem, pem_len);

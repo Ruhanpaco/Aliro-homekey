@@ -202,6 +202,10 @@ static esp_err_t reader_set_identity(const char *pubkey_pem, const char *privkey
     /* Key slots are derived against the reader's group sub-identifier, so
      * everything already enrolled has to be recomputed against the new one. */
     (void)access_control_refresh_key_slots();
+
+    /* And the stored fast-transaction keys belong to the identity that just
+     * went away. */
+    aliro_reader_forget_fast_transactions();
     ESP_LOGI(k_tag, "reader now running the identity provisioned over Matter");
     return ESP_OK;
 }
@@ -210,6 +214,7 @@ static esp_err_t reader_clear_identity(void)
 {
     ESP_ERROR_CHECK_WITHOUT_ABORT(app_config_erase_pem("rdr_pub"));
     ESP_ERROR_CHECK_WITHOUT_ABORT(app_config_erase_pem("rdr_priv"));
+    aliro_reader_forget_fast_transactions();
 
     /* The reader keeps running on the identity it has until the next restart.
      * Tearing it down here would leave a door that cannot be opened by anyone,

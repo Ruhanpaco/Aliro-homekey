@@ -131,6 +131,15 @@ esp_err_t aliro_reader_get_group_identifier(uint8_t *out, size_t *out_len);
 esp_err_t aliro_reader_get_group_sub_identifier(uint8_t *out, size_t *out_len);
 
 /**
+ * @brief Throw away the stored fast-transaction keys.
+ *
+ * Call this whenever the reader identity changes. The keys were negotiated
+ * under the old one and cannot match a phone again; leaving them costs the
+ * first tap afterwards a failed decrypt and a fallback to the slow path.
+ */
+void aliro_reader_forget_fast_transactions(void);
+
+/**
  * @brief Wrap raw key material in the PEM the SDK expects.
  *
  * A Matter controller sends bare key material -- 32 bytes of private scalar,

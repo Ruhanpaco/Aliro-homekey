@@ -87,13 +87,20 @@ and Samsung are untested.
 Certification is what a product being sold needs. It is not what this needs to
 be tried.
 
-**The other end is answered too.** An iPhone holding an endpoint key that Apple
-Home provisioned into this reader completed an Aliro transaction over NFC in
-569 ms, and the lock opened. That was a fast transaction — the SDK recognised a
-persistent key it had stored from an earlier exchange and finished the protocol
-itself. The standard path, which is what a phone runs the first time it meets a
-reader, has not been watched end to end yet, and neither have the Google or
-Samsung wallets.
+**The other end is answered too, on both paths.** An iPhone holding an endpoint
+key that Apple Home provisioned into this reader opened the lock over NFC twice
+over: a fast transaction in 569 ms, where the SDK recognised a persistent key
+stored from an earlier exchange, and a standard one in 2047 ms, where it ran the
+full exchange and the key-slot lookup named the credential — `granted: 'matter
+ev1' (standard transaction)`. The standard path is what a phone runs the first
+time it meets a reader, so that is the whole protocol proven end to end.
+
+What is not proven is the rest of the ecosystem. The Google and Samsung wallets
+are untested. Express Mode — a tap that opens the door without unlocking the
+phone or picking the key in Wallet — has not been available to select in Apple
+Home; selecting the key manually and presenting it works. That may be
+certification, since the accessory reports itself as an uncertified test vendor,
+but it is a guess and not something the logs can settle.
 
 ## Milestone 4 — protocol depth
 
