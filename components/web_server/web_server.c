@@ -6,6 +6,7 @@
 
 #include "web_server.h"
 
+#include "access_control.h"
 #include "app_config.h"
 #include "matter_lock.h"
 #include "net_manager.h"
@@ -434,7 +435,15 @@ static void ws_remove_client(int fd)
         }
     }
 
+    /* Nobody left to tell. The timer used to keep firing for the rest of the
+     * device's uptime, building a metrics object every five seconds and
+     * broadcasting it to an empty table. */
+    const bool idle = s_ws_client_count == 0;
     xSemaphoreGive(s_ws_clients_mutex);
+
+    if (idle && s_status_timer && esp_timer_is_active(s_status_timer)) {
+        esp_timer_stop(s_status_timer);
+    }
 }
 
 /**
@@ -537,6 +546,48 @@ static void status_timer_callback(void *arg)
     if (metrics) {
         ws_broadcast((const uint8_t *)metrics, strlen(metrics), HTTPD_WS_TYPE_TEXT);
         free(metrics);
+    }
+}
+
+/**
+ * @brief Push a tap, or a lock state change, to every open page.
+ *
+ * The five-second metrics tick already carries the lock state, but a tap is
+ * the one thing on this device worth seeing the instant it happens rather than
+ * up to five seconds later -- and the reason a tap was refused never appeared
+ * in the UI at all, only on the serial port.
+ *
+ * Called from the reader task, so it does no work beyond building the object:
+ * ws_broadcast hands the bytes to the sender task and returns.
+ */
+static void on_access_event(const access_event_t *event, void *ctx)
+{
+    (void)ctx;
+    if (!event) {
+        return;
+    }
+
+    cJSON *root = cJSON_CreateObject();
+    if (!root) {
+        return;
+    }
+
+    if (event->type == ACCESS_EVENT_TAP) {
+        cJSON_AddStringToObject(root, "type", "tap");
+        cJSON_AddBoolToObject(root, "granted", event->granted);
+        cJSON_AddStringToObject(root, "reason", event->reason ? event->reason : "");
+        cJSON_AddStringToObject(root, "credential", event->credential);
+        cJSON_AddStringToObject(root, "key_slot", event->key_slot_hex);
+    } else {
+        cJSON_AddStringToObject(root, "type", "lock");
+        cJSON_AddBoolToObject(root, "locked", event->locked);
+    }
+
+    char *json = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    if (json) {
+        ws_broadcast((const uint8_t *)json, strlen(json), HTTPD_WS_TYPE_TEXT);
+        free(json);
     }
 }
 
@@ -893,7 +944,19 @@ static esp_err_t handle_websocket(httpd_req_t *req)
     }
 
     if (ws_pkt.len > k_max_ws_payload) {
-        ESP_LOGE(k_tag, "WebSocket payload too large: %zu", ws_pkt.len);
+        /*
+         * Refusing is not enough: the payload is still sitting in the socket,
+         * and returning here leaves the next read to start mid-message and
+         * interpret payload bytes as a frame header. That is where
+         *
+         *     W httpd_ws: httpd_ws_recv_frame: WS frame is not properly masked
+         *
+         * comes from -- browsers always mask, so an unmasked header means the
+         * stream is out of step, not that the client is misbehaving. Once out
+         * of step it never recovers, so the connection dies and the page
+         * reconnects. Close it deliberately instead of desynchronising it.
+         */
+        ESP_LOGE(k_tag, "WebSocket payload of %zu bytes is too large; closing the connection", ws_pkt.len);
         return ESP_FAIL;
     }
 
@@ -1402,6 +1465,13 @@ esp_err_t web_server_start(const web_server_hooks_t *hooks)
         vQueueDelete(s_ws_queue);
         vSemaphoreDelete(s_ws_clients_mutex);
         return ESP_ERR_INVALID_STATE;
+    }
+
+    /* Taps go straight to the open pages rather than waiting for the next
+     * five-second tick. Not fatal if the observer table is full -- the metrics
+     * tick still carries the lock state, just later. */
+    if (access_control_add_observer(on_access_event, NULL) != ESP_OK) {
+        ESP_LOGW(k_tag, "no room to watch access events; the UI will lag a tap by up to five seconds");
     }
 
     const esp_err_t httpd_err = httpd_start(&s_server, &cfg);

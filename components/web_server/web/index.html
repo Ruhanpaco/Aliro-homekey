@@ -715,6 +715,14 @@ main{padding:0 1.5rem 1.5rem;height:100%;overflow-y:auto;background:var(--color-
               <div class="flex items-center gap-3 flex-wrap">
                 <button type="button" class="btn btn-primary btn-sm" id="unlock">Unlock now</button>
                 <span class="badge badge-ghost" id="lock_badge">Unknown</span>
+                <span class="flex items-center gap-2 ml-auto">
+                  <span class="status" id="ws_dot"></span>
+                  <span class="text-sm font-medium text-muted" id="ws_state">Connecting…</span>
+                </span>
+              </div>
+              <div>
+                <div class="k text-xs text-muted">Last tap</div>
+                <div class="text-xs text-muted" id="last_tap">Nothing yet since this page was opened.</div>
               </div>
             </div>
           </div>
@@ -1060,66 +1068,119 @@ const PAGES = {info:"Info", mqtt:"MQTT", actions:"Actions", misc:"System",
                ota:"OTA Update"};
 let caps = null;
 let ws = null, wsReconnectTimer = null, wsBackoffMs = 1500;
+/* The last full /api/status. The WebSocket carries deltas, and rendering needs
+   the whole object, so keep it rather than refetching on every tick. */
+let lastStatus = null;
 
 /* --- WebSocket support ------------------------------------------------- */
 
+/* Ping often enough to notice a dead link before the user does, and treat a
+   missing reply as a dead socket. A browser is told nothing when a TCP
+   connection stops working on a weak link: readyState stays OPEN, sends
+   succeed into a buffer nobody drains, and the page sits there showing stale
+   numbers until the device eventually gives up on its side. Asking every ten
+   seconds and expecting an answer within five is what turns that silence into
+   a reconnect. */
+const WS_PING_MS = 10000;
+const WS_PONG_TIMEOUT_MS = 5000;
+
+function wsSetLive(live) {
+  const dot = $("ws_dot");
+  if (dot) dot.className = `status ${live ? "status-success" : "status-error"}`;
+  const label = $("ws_state");
+  if (label) {
+    label.textContent = live ? "Live" : "Reconnecting…";
+    label.className = `text-sm font-medium ${live ? "text-success" : "text-muted"}`;
+  }
+}
+
 function connectWebSocket() {
-  if (ws && ws.readyState === WebSocket.OPEN) return;
+  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
 
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   const url = `${protocol}//${window.location.host}/api/ws`;
-  
+
   ws = new WebSocket(url);
   ws.addEventListener("open", () => {
-    console.log("WebSocket connected");
     clearTimeout(wsReconnectTimer);
     wsBackoffMs = 1500; /* a clean connection earns a fast retry next time */
-    // Send ping to keep connection alive
-    const ping = setInterval(() => {
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({type: "ping"}));
+    wsSetLive(true);
+
+    let lastPong = Date.now();
+    const socket = ws;
+    socket.pingInterval = setInterval(() => {
+      if (socket.readyState !== WebSocket.OPEN) return;
+      if (Date.now() - lastPong > WS_PING_MS + WS_PONG_TIMEOUT_MS) {
+        /* Closing it ourselves is the point: the socket is already useless,
+           and only an explicit close gets us to the reconnect path. */
+        console.warn("no pong; treating the connection as dead");
+        socket.close();
+        return;
       }
-    }, 30000);
-    ws.pingInterval = ping;
+      socket.send(JSON.stringify({type: "ping"}));
+    }, WS_PING_MS);
+    socket.onPong = () => { lastPong = Date.now(); };
   });
 
   ws.addEventListener("message", (event) => {
-    try {
-      const msg = JSON.parse(event.data);
-      if (msg.type === "metrics") {
-        // Update metrics in real-time
-        if (msg.free_heap !== undefined) {
-          const heapRow = document.querySelector("dd:contains('KB')");
-          if (heapRow) {
-            const rows = [];
-            // Re-fetch full status but update heap locally for now
-            console.log(`Heap: ${(msg.free_heap / 1024).toFixed(1)} KB`);
-          }
-        }
-      } else if (msg.type === "pong") {
-        console.log("Pong received");
-      }
-    } catch (e) {
-      console.error("WebSocket message parse error:", e);
+    let msg;
+    try { msg = JSON.parse(event.data); } catch { return; }
+
+    if (msg.type === "pong") {
+      if (ws && ws.onPong) ws.onPong();
+    } else if (msg.type === "metrics") {
+      applyMetrics(msg);
+    } else if (msg.type === "lock") {
+      if (lastStatus) { lastStatus.reader.locked = msg.locked; renderStatus(lastStatus); }
+    } else if (msg.type === "tap") {
+      onTap(msg);
     }
   });
 
   ws.addEventListener("close", () => {
-    if (ws.pingInterval) clearInterval(ws.pingInterval);
+    if (ws && ws.pingInterval) clearInterval(ws.pingInterval);
+    wsSetLive(false);
     /* Backing off rather than retrying flat, because a close is not always
        temporary: with a login configured, a browser that does not replay its
        credentials on the handshake is refused every time, and a fixed 3 s
        retry becomes a permanent connect-and-401 loop against a device with
-       four HTTP sockets. Capped so a reboot is still picked up promptly.
-       Live updates are the only casualty -- status polls on its own. */
+       four HTTP sockets. Capped so a reboot is still picked up promptly. */
     wsBackoffMs = Math.min(wsBackoffMs * 2, 30000);
-    console.log(`WebSocket disconnected, retrying in ${wsBackoffMs / 1000}s`);
     wsReconnectTimer = setTimeout(connectWebSocket, wsBackoffMs);
   });
 
-  ws.addEventListener("error", (event) => {
-    console.error("WebSocket error:", event);
-  });
+  ws.addEventListener("error", () => { /* close follows; it does the work */ });
+}
+
+/* Patch the last full status rather than refetching it. /api/status is a much
+   bigger object than these six numbers, and asking for it every five seconds
+   over a link this device is often at the edge of is what the WebSocket was
+   supposed to avoid. */
+function applyMetrics(m) {
+  if (!lastStatus) return;
+  lastStatus.device.uptime_ms = m.uptime_ms;
+  lastStatus.device.free_heap = m.free_heap;
+  lastStatus.device.min_free_heap = m.min_free_heap;
+  lastStatus.network.rssi = m.rssi;
+  lastStatus.mqtt.connected = m.mqtt_connected;
+  lastStatus.reader.locked = m.locked;
+  renderStatus(lastStatus);
+}
+
+function onTap(t) {
+  const who = t.credential || (t.key_slot ? `key slot ${t.key_slot}` : "an unknown device");
+  if (t.granted) {
+    toast(`Opened for ${who}.`);
+  } else {
+    toast(`Refused ${who}: ${t.reason || "no reason given"}`, "error");
+  }
+  const line = $("last_tap");
+  if (line) {
+    const when = new Date().toLocaleTimeString();
+    line.textContent = `${when} — ${t.granted ? "granted" : "refused"}: ${who}${t.reason ? ` (${t.reason})` : ""}`;
+    line.className = `text-xs ${t.granted ? "text-success" : "text-error"}`;
+  }
+  if (lastStatus) refreshStatus();
 }
 
 /* --- theme: dracula / autumn, as upstream ------------------------------ */
@@ -1348,7 +1409,10 @@ function renderStatus(s) {
 }
 
 async function refreshStatus() {
-  try { renderStatus(await api("/api/status")); } catch { /* keep the last good view */ }
+  try {
+    lastStatus = await api("/api/status");
+    renderStatus(lastStatus);
+  } catch { /* keep the last good view */ }
 }
 
 function renderAliro() {

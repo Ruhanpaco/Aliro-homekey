@@ -18,7 +18,9 @@
 
 static const char *const k_tag = "aliro/access";
 
-#define ACCESS_MAX_OBSERVERS 3
+/* MQTT, the Matter door lock endpoint, and the web UI, plus one spare. Exactly
+ * as many as there are watchers is a table that silently refuses the next one. */
+#define ACCESS_MAX_OBSERVERS 4
 
 static lock_config_t s_lock;
 static bool s_locked = true;
