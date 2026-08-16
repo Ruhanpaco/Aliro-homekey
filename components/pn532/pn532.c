@@ -26,6 +26,7 @@
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <soc/soc_caps.h>
 
 #include <string.h>
 
@@ -358,7 +359,22 @@ static esp_err_t bus_init(pn532_t *dev)
     }
 
     if (is_spi(dev)) {
+        /*
+         * SPI3_HOST is not a value that exists everywhere -- on a C3 there is
+         * one general-purpose host and the enumerator is simply absent, so
+         * naming it is a compile error rather than a runtime one:
+         *
+         *     error: 'SPI3_HOST' undeclared; did you mean 'SPI2_HOST'?
+         *
+         * app_config already defaults and validates the choice against
+         * SOC_SPI_PERIPH_NUM; this is the same fact, spelled where the
+         * enumerator is referenced.
+         */
+#if SOC_SPI_PERIPH_NUM > 2
         const spi_host_device_t host = dev->cfg.spi_host == 2 ? SPI3_HOST : SPI2_HOST;
+#else
+        const spi_host_device_t host = SPI2_HOST;
+#endif
         const spi_bus_config_t bus = {
             .mosi_io_num = dev->cfg.spi_mosi,
             .miso_io_num = dev->cfg.spi_miso,
