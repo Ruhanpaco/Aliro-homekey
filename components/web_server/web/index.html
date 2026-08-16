@@ -542,6 +542,13 @@ main{padding:0 1.5rem 1.5rem;height:100%;overflow-y:auto;background:var(--color-
                 </div>
                 <p class="text-xs text-muted">A controller commissions this lock over Bluetooth, then
                   sends it a reader identity and the phone keys allowed to open it.</p>
+                <div id="matter_reader_reset_row" class="hidden space-y-2">
+                  <button type="button" class="btn btn-sm btn-outline w-full" id="matter_reader_reset">Release reader identity</button>
+                  <p class="text-xs text-muted">Only if your home app will not set up a home key. A reader
+                    identity can be set once, so one left behind by a controller you have since removed
+                    blocks every new attempt. Releasing it stops enrolled phones from opening the door
+                    until a controller provisions the reader again.</p>
+                </div>
               </div>
             </div>
           </div>
@@ -1315,6 +1322,7 @@ function renderStatus(s) {
           : badge("Waiting to pair", "warning")],
       ["Reader identity", s.matter.reader_configured ? badge("Provisioned", "success") : badge("Not set", "ghost")],
     ]);
+    $("matter_reader_reset_row").classList.toggle("hidden", !s.matter.reader_configured);
     $("matter_manual").textContent = s.matter.manual_code || "—";
     $("matter_pairing").classList.toggle("hidden", !s.matter.qr_url);
     if (s.matter.qr_url) $("matter_qr").href = s.matter.qr_url;
@@ -1388,6 +1396,15 @@ $("matter_pair").addEventListener("click", async () => {
   try {
     await api("/api/matter/pair", {method: "POST"});
     toast("Pairing open for 5 minutes.");
+    refreshStatus();
+  } catch (err) { toast(err.message, "error"); }
+});
+
+$("matter_reader_reset").addEventListener("click", async () => {
+  if (!confirm("Release the reader identity? Enrolled phones stop opening the door until a controller provisions it again.")) return;
+  try {
+    await api("/api/matter/reader/reset", {method: "POST"});
+    toast("Reader identity released. Set up the home key again from your home app.");
     refreshStatus();
   } catch (err) { toast(err.message, "error"); }
 });

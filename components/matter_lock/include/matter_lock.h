@@ -114,6 +114,22 @@ const char *matter_lock_qr_url(void);
 esp_err_t matter_lock_open_commissioning_window(void);
 
 /**
+ * @brief Give up the provisioned Aliro reader identity.
+ *
+ * The Door Lock cluster accepts SetAliroReaderConfig only while the reader's
+ * verification key attribute reads null, so a stored identity blocks every
+ * later attempt to provision one. That is normally what you want -- the first
+ * controller to configure the reader owns it -- and the firmware releases it on
+ * its own when the fabric behind it goes away.
+ *
+ * This is the manual way out, for the case that rule cannot see: an identity
+ * left over from a controller that was removed by a firmware which did not
+ * watch for it. Enrolled phones stop opening the door until a controller
+ * provisions the reader again.
+ */
+esp_err_t matter_lock_release_reader_config(void);
+
+/**
  * @brief Publish a lock state change to Matter.
  *
  * Safe to call from any task, including the reader task straight after a tap.

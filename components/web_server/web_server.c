@@ -797,6 +797,32 @@ static esp_err_t handle_post_matter_pair(httpd_req_t *req)
     return send_json_response(req, true, "Pairing open", NULL, NULL);
 }
 
+static esp_err_t handle_post_matter_reader_reset(httpd_req_t *req)
+{
+    REQUIRE_AUTH(req);
+    /*
+     * The escape hatch for a reader identity that outlived the controller which
+     * set it. SetAliroReaderConfig is refused while one is stored, so a device
+     * in that state can never be set up by any ecosystem again -- the firmware
+     * releases it by itself when the fabric behind it goes away, but a device
+     * that reached this state under an older build has nothing left to notice.
+     */
+    if (!matter_lock_available()) {
+        httpd_resp_set_status(req, "501 Not Implemented");
+        return send_json_response(req, false, NULL, "this firmware was built without Matter", NULL);
+    }
+    if (!matter_lock_reader_configured()) {
+        httpd_resp_set_status(req, "409 Conflict");
+        return send_json_response(req, false, NULL, "no reader identity has been provisioned", NULL);
+    }
+    if (matter_lock_release_reader_config() != ESP_OK) {
+        httpd_resp_set_status(req, "500 Internal Server Error");
+        return send_json_response(req, false, NULL, "could not release the reader identity", NULL);
+    }
+    return send_json_response(req, true, "Reader identity released; provision it again from your home app", NULL,
+                              NULL);
+}
+
 static void reboot_task(void *params)
 {
     (void)params;
@@ -1364,6 +1390,10 @@ esp_err_t web_server_start(const web_server_hooks_t *hooks)
         {.uri = "/api/reboot", .method = HTTP_POST, .handler = handle_post_reboot, .is_websocket = false},
         {.uri = "/api/unlock", .method = HTTP_POST, .handler = handle_post_unlock, .is_websocket = false},
         {.uri = "/api/matter/pair", .method = HTTP_POST, .handler = handle_post_matter_pair, .is_websocket = false},
+        {.uri = "/api/matter/reader/reset",
+         .method = HTTP_POST,
+         .handler = handle_post_matter_reader_reset,
+         .is_websocket = false},
 
         /* WebSocket endpoint */
         {.uri = "/api/ws", .method = HTTP_GET, .handler = handle_websocket, .is_websocket = true},

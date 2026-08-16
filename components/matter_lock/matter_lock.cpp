@@ -108,43 +108,58 @@ static void load_reader_configured(void)
 
 /* --- Releasing a reader identity nobody owns ----------------------------- */
 
-/**
- * @brief Give up a provisioned reader identity that is serving nobody.
- *
+/*
  * The cluster server accepts SetAliroReaderConfig only while the reader's
  * verification key attribute reads null, so a stored configuration is not just
  * a setting -- it is a lock on the one command a phone ecosystem needs in order
- * to set this device up. Nothing clears it on its own: not removing the fabric
- * that sent it, not removing every fabric on the device. It survived to the
- * point where Apple, re-adding a lock it had provisioned once before, was
- * refused twice in the same setup flow:
+ * to set this device up. Nothing used to clear it: not removing the fabric that
+ * sent it, not removing every fabric on the device. It survived to the point
+ * where Apple, re-adding a lock it had provisioned once before, was refused
+ * twice in the same setup flow:
  *
  *     E [SetAliroReaderConfig] Aliro reader verification key was not read or
  *                              is not null.
  *
  * and the Home Key row in "Unlock your door" stayed greyed out, because a home
  * key cannot be issued against a reader identity the controller could not set.
+ */
+
+/** @brief Drop the reader identity, whatever the reason. */
+static esp_err_t release_reader_config(const char *why)
+{
+    if (!s_hooks_set || !s_hooks.clear_reader_identity) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    ESP_LOGW(k_tag, "%s: releasing the provisioned reader identity so a controller can provision this reader again",
+             why);
+    const esp_err_t err = s_hooks.clear_reader_identity();
+    if (err == ESP_OK) {
+        matter_lock_set_reader_configured(false);
+    }
+    return err;
+}
+
+/**
+ * @brief Drop the reader identity only if it is serving nobody.
  *
- * A reader identity exists to serve enrolled Aliro credentials. When the last
- * one is gone -- because the fabric that owned them left, or because this is a
- * device that was provisioned before any phone was enrolled -- it belongs to
- * nobody, and holding on to it only blocks the next controller. Letting go
- * costs nothing: the controller simply provisions again.
+ * A reader identity exists for the Aliro credentials enrolled against it. When
+ * the last one is gone -- because the fabric that owned them left, or because
+ * the device was provisioned before any phone was enrolled -- it belongs to
+ * nobody, and keeping it only blocks the next controller. Letting go costs
+ * nothing: the controller provisions again.
+ *
+ * The converse is deliberate. While credentials are enrolled the identity stays
+ * put even if a second controller asks for its own, because the first one to
+ * configure an Aliro reader owns it and the phones already carrying keys for it
+ * would stop working.
  */
 static void release_orphaned_reader_config(const char *why)
 {
     if (!s_reader_configured || matter_lock_store_aliro_credential_count() != 0) {
         return;
     }
-    if (!s_hooks_set || !s_hooks.clear_reader_identity) {
-        return;
-    }
-
-    ESP_LOGW(k_tag, "%s: no Aliro credential is left behind the provisioned reader identity; releasing it so a "
-                    "controller can provision this reader again",
-             why);
-    (void)s_hooks.clear_reader_identity();
-    matter_lock_set_reader_configured(false);
+    (void)release_reader_config(why);
 }
 
 /**
@@ -476,6 +491,21 @@ extern "C" esp_err_t matter_lock_open_commissioning_window(void)
     /* Everything inside the stack has to run on the Matter task. */
     return chip::DeviceLayer::PlatformMgr().ScheduleWork(open_commissioning_window, 0) == CHIP_NO_ERROR ? ESP_OK
                                                                                                        : ESP_FAIL;
+}
+
+extern "C" esp_err_t matter_lock_release_reader_config(void)
+{
+    if (!s_running) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (!s_reader_configured) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    /* Runs on the caller's task, unlike the two above: this touches the reader
+     * and NVS rather than the cluster, and the web server wants to report
+     * whether it worked rather than that it was scheduled. */
+    return release_reader_config("asked to over the web UI");
 }
 
 static void report_lock_state(intptr_t locked)

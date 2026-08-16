@@ -63,6 +63,11 @@ esp_err_t matter_lock_open_commissioning_window(void)
     return ESP_ERR_NOT_SUPPORTED;
 }
 
+esp_err_t matter_lock_release_reader_config(void)
+{
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
 void matter_lock_report_lock_state(bool locked)
 {
     (void)locked;
