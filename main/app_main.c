@@ -124,6 +124,12 @@ static esp_err_t start_reader(const app_config_t *cfg)
                                                   sizeof(reader_cfg.group_identifier)),
                         k_tag, "reader group identifier '%s' is not valid hex", cfg->group_id_hex);
 
+    /* The same identifier the transaction runs under also names this reader in
+     * the ECP beacon, so a locked phone knows which lock is asking. Set after
+     * the parse and before the transport starts, and re-set on every restart,
+     * which is how a newly provisioned identity reaches the beacon. */
+    nfc_transport_set_reader_id(reader_cfg.group_identifier, sizeof(reader_cfg.group_identifier));
+
     ESP_RETURN_ON_ERROR(aliro_reader_start(&reader_cfg), k_tag, "reader failed to start");
     ESP_ERROR_CHECK_WITHOUT_ABORT(aliro_reader_log_identity());
     return ESP_OK;

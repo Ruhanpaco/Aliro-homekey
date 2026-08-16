@@ -91,6 +91,19 @@ const nfc_transport_t *nfc_transport_stub(void);
 const nfc_transport_t *nfc_transport_pn532(const nfc_hw_config_t *cfg);
 
 /**
+ * @brief Tell the frontend which reader it should announce itself as.
+ *
+ * The reader group identifier goes into the Apple ECP beacon, the frame that
+ * lets a locked phone offer its credential without the wallet being opened.
+ * Call it after nfc_transport_from_config() and before the transport is
+ * started; a frontend that cannot emit a beacon ignores it.
+ *
+ * Identity, not wiring, which is why it is not in @ref nfc_hw_config_t: this
+ * changes when a controller provisions the reader, and the pin numbers do not.
+ */
+void nfc_transport_set_reader_id(const uint8_t *id, size_t len);
+
+/**
  * @brief Pick a driver for the configured chip.
  *
  * Falls back to the stub for any chip whose driver is not written yet, and

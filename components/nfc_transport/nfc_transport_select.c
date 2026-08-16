@@ -8,6 +8,8 @@
 
 #include "pn532.h"
 
+#include <string.h>
+
 #include <esp_log.h>
 
 static const char *const k_tag = "nfc";
@@ -111,4 +113,15 @@ const nfc_transport_t *nfc_transport_pn532(const nfc_hw_config_t *cfg)
         .rst_pin = cfg->rst_pin == APP_CFG_PIN_UNSET ? PN532_PIN_UNSET : cfg->rst_pin,
     };
     return &k_pn532;
+}
+
+void nfc_transport_set_reader_id(const uint8_t *id, size_t len)
+{
+    memset(s_cfg.reader_id, 0, sizeof(s_cfg.reader_id));
+    if (!id || len == 0) {
+        return;
+    }
+    /* The beacon carries the first eight bytes of a sixteen-byte group
+     * identifier. */
+    memcpy(s_cfg.reader_id, id, len < sizeof(s_cfg.reader_id) ? len : sizeof(s_cfg.reader_id));
 }

@@ -42,11 +42,21 @@ static const char *const k_tag = "nfc/pn532";
 #define PN532_PNTOHOST   0xD5
 
 #define CMD_GET_FIRMWARE_VERSION   0x02
+#define CMD_WRITE_REGISTER         0x08
 #define CMD_SAM_CONFIGURATION      0x14
 #define CMD_RF_CONFIGURATION       0x32
 #define CMD_IN_DATA_EXCHANGE       0x40
+#define CMD_IN_COMMUNICATE_THRU    0x42
 #define CMD_IN_LIST_PASSIVE_TARGET 0x4A
 #define CMD_IN_RELEASE             0x52
+
+/*
+ * CIU registers on the PN532's contactless interface unit. Bit 7 of each is
+ * "compute and append/check CRC"; clearing it is what lets a raw frame carry
+ * its own CRC_A, which the ECP beacon below does.
+ */
+#define REG_CIU_TX_MODE 0x6302
+#define REG_CIU_RX_MODE 0x6303
 
 /* SPI is byte-addressed by a leading operation code, and the bus runs
  * LSB-first -- the one detail that silently produces garbage if missed. */
@@ -79,6 +89,9 @@ typedef struct {
      * alternative is 264 bytes of stack in a task that already carries an
      * mbedTLS session. */
     uint8_t frame[PN532_FRAME_MAX];
+
+    uint8_t ecp_frame[PN532_ECP_FRAME_LEN];
+    bool ecp_armed; /*!< False when no reader identifier was configured */
 } pn532_t;
 
 static pn532_t s_pn532;
@@ -517,9 +530,122 @@ static esp_err_t pn532_start(pn532_t *dev)
     ESP_RETURN_ON_ERROR(pn532_command(dev, CMD_RF_CONFIGURATION, field, sizeof(field), NULL, 0, NULL, 200), k_tag,
                         "RFConfiguration(field) failed");
 
+    bool have_reader_id = false;
+    for (size_t i = 0; i < PN532_ECP_READER_ID_LEN; i++) {
+        if (dev->cfg.reader_id[i] != 0) {
+            have_reader_id = true;
+            break;
+        }
+    }
+    if (have_reader_id) {
+        build_ecp_frame(dev);
+        ESP_LOGI(k_tag, "ECP beacon armed; a locked phone can be tapped without opening its wallet");
+    } else {
+        ESP_LOGW(k_tag, "no reader identifier, so no ECP beacon: a phone must have its key selected before a tap");
+    }
+
     dev->ready = true;
     ESP_LOGI(k_tag, "reader ready, waiting for a device");
     return ESP_OK;
+}
+
+/* --- Apple ECP, the beacon that wakes a locked phone --------------------- */
+
+/**
+ * @brief ISO 14443-A CRC, seeded at 0x6363.
+ *
+ * The beacon carries its own, because the chip's CRC engine is switched off
+ * while it goes out.
+ */
+static uint16_t crc_a(const uint8_t *data, size_t len)
+{
+    uint16_t crc = 0x6363;
+
+    for (size_t i = 0; i < len; i++) {
+        uint8_t b = (uint8_t)(data[i] ^ (crc & 0x00FF));
+        b = (uint8_t)((b ^ (b << 4)) & 0xFF);
+        crc = (uint16_t)(((crc >> 8) ^ ((uint16_t)b << 8) ^ ((uint16_t)b << 3) ^ ((uint16_t)b >> 4)) & 0xFFFF);
+    }
+    return crc;
+}
+
+static esp_err_t write_ciu_register(pn532_t *dev, uint16_t reg, uint8_t value)
+{
+    const uint8_t params[] = {(uint8_t)(reg >> 8), (uint8_t)(reg & 0xFF), value};
+    return pn532_command(dev, CMD_WRITE_REGISTER, params, sizeof(params), NULL, 0, NULL, 100);
+}
+
+/**
+ * @brief RFConfiguration item 0x02: ATR_RES and non-DEP frame timeouts.
+ *
+ * The code is an exponent -- the timeout is 100 us * 2^(code - 1). The beacon
+ * wants the shortest useful wait because nothing ever answers it; leaving the
+ * APDU-length timeout in place would spend most of every poll cycle waiting
+ * for a reply that is not coming.
+ */
+static esp_err_t set_rf_timeouts(pn532_t *dev, uint8_t atr_res_code, uint8_t non_dep_code)
+{
+    const uint8_t params[] = {0x02, 0x00, atr_res_code, non_dep_code};
+    return pn532_command(dev, CMD_RF_CONFIGURATION, params, sizeof(params), NULL, 0, NULL, 100);
+}
+
+#define ECP_TIMEOUT_CODE     0x04 /* 0.8 ms, for the beacon */
+#define ECP_ATR_RES_CODE     0x0B /* 102 ms */
+#define ECP_EXCHANGE_CODE    0x0D /* 410 ms, restored for APDUs */
+
+/**
+ * @brief Build the 18-byte Aliro ECP frame from the reader group identifier.
+ *
+ * Layout, which is the same on every implementation that does this: an 8-byte
+ * ECP v2 header whose last three bytes are the profile's TCI, then 8 bytes of
+ * reader identifier, then CRC_A over the first sixteen.
+ *
+ * The TCI is what decides which applet a phone offers. 20 42 20 is Aliro; the
+ * HomeKey profile is 02 11 00 and reaches a different applet entirely, which
+ * is why emitting one does not get you the other.
+ */
+static void build_ecp_frame(pn532_t *dev)
+{
+    static const uint8_t header[8] = {0x6A, 0x02, 0xCB, 0x02, 0x06, 0x20, 0x42, 0x20};
+
+    memcpy(dev->ecp_frame, header, sizeof(header));
+    memcpy(dev->ecp_frame + sizeof(header), dev->cfg.reader_id, PN532_ECP_READER_ID_LEN);
+
+    const uint16_t crc = crc_a(dev->ecp_frame, PN532_ECP_FRAME_LEN - 2);
+    dev->ecp_frame[PN532_ECP_FRAME_LEN - 2] = (uint8_t)(crc & 0xFF);
+    dev->ecp_frame[PN532_ECP_FRAME_LEN - 1] = (uint8_t)(crc >> 8);
+    dev->ecp_armed = true;
+
+    ESP_LOG_BUFFER_HEX_LEVEL(k_tag, dev->ecp_frame, PN532_ECP_FRAME_LEN, ESP_LOG_DEBUG);
+}
+
+/**
+ * @brief Broadcast the beacon, then put the chip back how it was.
+ *
+ * Fire and forget: an ECP frame is an announcement, and a chip-side timeout is
+ * the expected outcome rather than a failure.
+ *
+ * The restore is load-bearing. Leaving the CRC engines off does not announce
+ * itself -- the next InListPassiveTarget simply stops activating cards, and an
+ * ordinary tap quietly goes back to not working with nothing in the log.
+ */
+static void broadcast_ecp(pn532_t *dev)
+{
+    if (!dev->ecp_armed) {
+        return;
+    }
+
+    (void)set_rf_timeouts(dev, ECP_ATR_RES_CODE, ECP_TIMEOUT_CODE);
+    (void)write_ciu_register(dev, REG_CIU_TX_MODE, 0x00);
+    (void)write_ciu_register(dev, REG_CIU_RX_MODE, 0x00);
+
+    (void)pn532_command(dev, CMD_IN_COMMUNICATE_THRU, dev->ecp_frame, PN532_ECP_FRAME_LEN, NULL, 0, NULL, 100);
+
+    if (write_ciu_register(dev, REG_CIU_TX_MODE, 0x80) != ESP_OK ||
+        write_ciu_register(dev, REG_CIU_RX_MODE, 0x80) != ESP_OK ||
+        set_rf_timeouts(dev, ECP_ATR_RES_CODE, ECP_EXCHANGE_CODE) != ESP_OK) {
+        ESP_LOGW(k_tag, "could not restore the CRC engines after the ECP beacon; taps may stop being read");
+    }
 }
 
 /* --- polling loop -------------------------------------------------------- */
@@ -538,14 +664,13 @@ bool pn532_activate(void)
     }
 
     /*
-     * A phone presenting an Aliro credential answers ISO 14443-4 like any
-     * other card, so a plain type A poll finds it. Apple's ECP broadcast --
-     * an unsolicited frame that makes a locked iPhone offer its credential
-     * without the wallet being opened -- would go here, sent with
-     * InCommunicateThru before this call. The payload is ecosystem-specific
-     * and this project has no authoritative Aliro one, so it is left out
-     * rather than guessed at.
+     * Beacon first, then poll. A phone that is unlocked and showing its key
+     * answers the poll on its own; a locked one only answers after the ECP
+     * frame tells it a reader wanting Aliro is present. Order matters -- this
+     * is the cadence a phone expects, beacon then WUPA.
      */
+    broadcast_ecp(dev);
+
     const uint8_t params[] = {0x01, 0x00}; /* one target, 106 kbps type A */
     uint8_t found[64] = {0};
     size_t found_len = 0;
