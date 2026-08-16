@@ -85,8 +85,15 @@ GPIO from the Home app. `chip-tool` and Home Assistant accept it too; Google
 and Samsung are untested.
 
 Certification is what a product being sold needs. It is not what this needs to
-be tried. What remains unproven is the other end: whether a phone that holds an
-enrolled endpoint key can actually open the door over NFC.
+be tried.
+
+**The other end is answered too.** An iPhone holding an endpoint key that Apple
+Home provisioned into this reader completed an Aliro transaction over NFC in
+569 ms, and the lock opened. That was a fast transaction — the SDK recognised a
+persistent key it had stored from an earlier exchange and finished the protocol
+itself. The standard path, which is what a phone runs the first time it meets a
+reader, has not been watched end to end yet, and neither have the Google or
+Samsung wallets.
 
 ## Milestone 4 — protocol depth
 
@@ -101,8 +108,10 @@ locks and readers.
 
 Two gaps in the web service that must close before this touches a real door:
 
-- **Authentication.** The configuration UI is currently open to anyone on the
-  network, including anyone who joins the setup AP.
+- **Authentication.** A username and password can now be set in the UI, and
+  every configuration and OTA endpoint refuses without it. It is off until
+  someone turns it on, it travels over plain HTTP, and there is no recovery
+  path if the password is lost short of erasing the configuration over USB.
 - **Logs.** There is no log view in the UI. The ring buffer that fed one cost
   ~16 KB of DRAM on a board where the web server was already failing to
   allocate a 1 KB request buffer, so it was removed; the serial port still
