@@ -20,6 +20,8 @@
 
 #include "matter_aliro_delegate.h"
 
+#include "app_config.h"
+
 #include <esp_log.h>
 #include <esp_matter.h>
 #include <nvs.h>
@@ -206,7 +208,24 @@ extern "C" esp_err_t matter_lock_start(const matter_lock_hooks_t *hooks)
 
     load_reader_configured();
 
+    /*
+     * The device's own name, so a controller offers something better than
+     * "Matter Accessory" when it is added. NodeLabel is the writable,
+     * user-facing name in the Basic Information cluster; the vendor and
+     * product names beside it are fixed at build time by the attestation
+     * data, so this is the one a device gets to choose.
+     *
+     * A controller may overwrite it when the user renames the accessory in
+     * their app, which is correct -- their name should win over ours.
+     */
     node::config_t node_config;
+    const app_config_t *app_cfg = app_config_get();
+    if (app_cfg && app_cfg->device_name[0] != '\0') {
+        strlcpy(node_config.root_node.basic_information.node_label, app_cfg->device_name,
+                sizeof(node_config.root_node.basic_information.node_label));
+        ESP_LOGI(k_tag, "advertising as '%s'", node_config.root_node.basic_information.node_label);
+    }
+
     node_t *node = node::create(&node_config, on_attribute_update, on_identify);
     if (!node) {
         ESP_LOGE(k_tag, "could not create the Matter node");

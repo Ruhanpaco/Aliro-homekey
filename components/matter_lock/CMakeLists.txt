@@ -11,7 +11,7 @@
 #
 # ESP_MATTER_PATH is an environment variable, which both passes can see, and it
 # is exactly the condition that decides whether these components exist at all.
-set(_requires aliro_reader)
+set(_requires aliro_reader app_config)
 if(DEFINED ENV{ESP_MATTER_PATH})
     list(APPEND _requires esp_matter chip)
 endif()
