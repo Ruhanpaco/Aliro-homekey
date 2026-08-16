@@ -275,6 +275,94 @@ static void store_load(void)
     }
 }
 
+/* --- Fabrics leaving ----------------------------------------------------- */
+
+/*
+ * Every credential table except the programming PIN, which is a single
+ * device-level slot no fabric owns.
+ */
+struct CredentialTable {
+    StoredCredential *entries;
+    uint16_t count;
+    CredentialTypeEnum type;
+};
+
+static CredentialTable credential_tables(size_t i)
+{
+    static const CredentialTable tables[] = {
+        {s_credentials.pin, kMaxPinCredentials, CredentialTypeEnum::kPin},
+        {s_credentials.issuer, kAliroCredentialIssuerKeysSupported, CredentialTypeEnum::kAliroCredentialIssuerKey},
+        {s_credentials.evictable, kAliroEndpointKeysSupported, CredentialTypeEnum::kAliroEvictableEndpointKey},
+        {s_credentials.nonEvictable, kAliroEndpointKeysSupported, CredentialTypeEnum::kAliroNonEvictableEndpointKey},
+    };
+    return tables[i];
+}
+
+static constexpr size_t kCredentialTableCount = 4;
+
+extern "C" void matter_lock_store_forget_fabric(uint8_t fabric_index)
+{
+    store_load();
+
+    bool credentials_changed = false;
+    bool users_changed = false;
+
+    for (size_t t = 0; t < kCredentialTableCount; t++) {
+        const CredentialTable table = credential_tables(t);
+        for (uint16_t i = 0; i < table.count; i++) {
+            StoredCredential &slot = table.entries[i];
+            if (slot.status != static_cast<uint8_t>(DlCredentialStatus::kOccupied) || slot.createdBy != fabric_index) {
+                continue;
+            }
+            /* Out of the reader before out of the database, or the key material
+             * needed to identify it in the reader's store is already gone. */
+            if (is_aliro_endpoint_key(table.type)) {
+                apply_endpoint_key(table.type, i + 1, slot.data, slot.len, false);
+            }
+            memset(&slot, 0, sizeof(slot));
+            credentials_changed = true;
+        }
+    }
+
+    for (uint16_t i = 0; i < kMaxUsers; i++) {
+        if (s_users[i].status != static_cast<uint8_t>(UserStatusEnum::kAvailable) &&
+            s_users[i].createdBy == fabric_index) {
+            memset(&s_users[i], 0, sizeof(s_users[i]));
+            refresh_user_credentials(i);
+            users_changed = true;
+        }
+    }
+
+    if (credentials_changed) {
+        persist(k_nvs_credentials, &s_credentials, sizeof(s_credentials));
+    }
+    if (users_changed) {
+        persist(k_nvs_users, s_users, sizeof(s_users));
+    }
+    if (credentials_changed || users_changed) {
+        ESP_LOGI(k_tag, "fabric %u was removed; its users and credentials are gone", (unsigned)fabric_index);
+    }
+}
+
+extern "C" size_t matter_lock_store_aliro_credential_count(void)
+{
+    store_load();
+
+    size_t count = 0;
+    for (size_t t = 0; t < kCredentialTableCount; t++) {
+        const CredentialTable table = credential_tables(t);
+        if (table.type == CredentialTypeEnum::kPin) {
+            continue;
+        }
+        for (uint16_t i = 0; i < table.count; i++) {
+            if (table.entries[i].status == static_cast<uint8_t>(DlCredentialStatus::kOccupied)) {
+                count++;
+            }
+        }
+    }
+    return count;
+}
+
 /* --- Cluster callbacks --------------------------------------------------- */
 
 void emberAfDoorLockClusterInitCallback(EndpointId endpoint)

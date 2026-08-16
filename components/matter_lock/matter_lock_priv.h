@@ -25,6 +25,15 @@ uint16_t matter_lock_endpoint(void);
  *         identity, so the web UI can say so after a restart. */
 void matter_lock_set_reader_configured(bool configured);
 
+/** @brief Drop every user and credential a removed fabric created, taking its
+ *         endpoint keys back out of the reader as they go. */
+void matter_lock_store_forget_fabric(uint8_t fabric_index);
+
+/** @brief How many Aliro credentials of any kind -- issuer keys and endpoint
+ *         keys -- the store still holds. Zero means the provisioned reader
+ *         identity is serving nobody. */
+size_t matter_lock_store_aliro_credential_count(void);
+
 #ifdef __cplusplus
 }
 #endif

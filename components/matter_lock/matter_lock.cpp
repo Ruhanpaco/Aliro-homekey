@@ -29,6 +29,7 @@
 #include <app/clusters/door-lock-server/door-lock-server.h>
 #include <app/server/CommissioningWindowManager.h>
 #include <app/server/Server.h>
+#include <credentials/FabricTable.h>
 #include <lib/support/TypeTraits.h>
 #include <platform/ConnectivityManager.h>
 #include <platform/PlatformManager.h>
@@ -104,6 +105,66 @@ static void load_reader_configured(void)
     }
     nvs_close(handle);
 }
+
+/* --- Releasing a reader identity nobody owns ----------------------------- */
+
+/**
+ * @brief Give up a provisioned reader identity that is serving nobody.
+ *
+ * The cluster server accepts SetAliroReaderConfig only while the reader's
+ * verification key attribute reads null, so a stored configuration is not just
+ * a setting -- it is a lock on the one command a phone ecosystem needs in order
+ * to set this device up. Nothing clears it on its own: not removing the fabric
+ * that sent it, not removing every fabric on the device. It survived to the
+ * point where Apple, re-adding a lock it had provisioned once before, was
+ * refused twice in the same setup flow:
+ *
+ *     E [SetAliroReaderConfig] Aliro reader verification key was not read or
+ *                              is not null.
+ *
+ * and the Home Key row in "Unlock your door" stayed greyed out, because a home
+ * key cannot be issued against a reader identity the controller could not set.
+ *
+ * A reader identity exists to serve enrolled Aliro credentials. When the last
+ * one is gone -- because the fabric that owned them left, or because this is a
+ * device that was provisioned before any phone was enrolled -- it belongs to
+ * nobody, and holding on to it only blocks the next controller. Letting go
+ * costs nothing: the controller simply provisions again.
+ */
+static void release_orphaned_reader_config(const char *why)
+{
+    if (!s_reader_configured || matter_lock_store_aliro_credential_count() != 0) {
+        return;
+    }
+    if (!s_hooks_set || !s_hooks.clear_reader_identity) {
+        return;
+    }
+
+    ESP_LOGW(k_tag, "%s: no Aliro credential is left behind the provisioned reader identity; releasing it so a "
+                    "controller can provision this reader again",
+             why);
+    (void)s_hooks.clear_reader_identity();
+    matter_lock_set_reader_configured(false);
+}
+
+/**
+ * @brief Watches the fabric table so a departing controller takes its own
+ *        users, credentials and reader identity with it.
+ *
+ * esp-matter runs a fabric delegate of its own, but the device event it posts
+ * carries no fabric index -- and the index is the whole point here. The
+ * delegate list is intrusive and holds both without complaint.
+ */
+class LockFabricDelegate : public chip::FabricTable::Delegate {
+public:
+    void OnFabricRemoved(const chip::FabricTable &fabricTable, chip::FabricIndex fabricIndex) override
+    {
+        matter_lock_store_forget_fabric(fabricIndex);
+        release_orphaned_reader_config("a fabric was removed");
+    }
+};
+
+static LockFabricDelegate s_fabric_delegate;
 
 /* --- Stack callbacks ----------------------------------------------------- */
 
@@ -298,6 +359,22 @@ extern "C" esp_err_t matter_lock_start(const matter_lock_hooks_t *hooks)
     }
 
     s_running = true;
+
+    /*
+     * Both under the stack lock: the fabric table belongs to the Matter task,
+     * which is running by now, and the credential store this reads was filled
+     * in from that task during start().
+     */
+    chip::DeviceLayer::PlatformMgr().LockChipStack();
+    const CHIP_ERROR fabric_err = chip::Server::GetInstance().GetFabricTable().AddFabricDelegate(&s_fabric_delegate);
+    if (fabric_err != CHIP_NO_ERROR) {
+        ESP_LOGE(k_tag, "could not watch the fabric table: %" CHIP_ERROR_FORMAT, fabric_err.Format());
+    }
+    /* Fabrics can also be removed while this device is powered off, and a
+     * reader identity provisioned by an older firmware has no owner recorded at
+     * all. Both land here. */
+    release_orphaned_reader_config("at boot");
+    chip::DeviceLayer::PlatformMgr().UnlockChipStack();
 
 #if CHIP_DEVICE_CONFIG_ENABLE_WIFI_STATION
     /*
