@@ -350,9 +350,35 @@ void access_control_on_reader_result(const aliro_reader_result_t *result, void *
     }
 
     if (!result->key_slot_valid) {
-        /* The device authenticated but never presented a key slot, so the
-         * reader cannot say *which* credential this was. Refuse rather than
-         * open a door for an unidentified holder. */
+        /*
+         * A fast transaction never presents one, and that is by design: the
+         * SDK matched a persistent key it stored during an earlier standard
+         * transaction, which is the same device proving itself with material
+         * only it could hold. The key-slot lookup is not called because there
+         * is nothing to look up.
+         *
+         * Refusing here was wrong, and it refused the first real tap this
+         * project ever completed:
+         *
+         *     session: Fast transaction matched persistent key index=0
+         *     aliro/reader: transaction ok (fast) in 569 ms
+         *     W aliro/access: denied: authenticated device presented no key slot
+         *
+         * What is genuinely lost is *which* credential it was -- the reader
+         * knows the holder is legitimate, not which one. That is the trade
+         * Aliro makes for a tap that feels instant, and the event says so
+         * rather than naming a credential it cannot identify.
+         */
+        if (result->txn_type == ESP_ALIRO_TRANSACTION_FAST) {
+            ESP_LOGI(k_tag, "granted: fast transaction against a stored key (%lld ms)",
+                     (long long)result->duration_ms);
+            tap_event(true, "granted", "fast transaction", result);
+            ESP_ERROR_CHECK_WITHOUT_ABORT(access_control_unlock());
+            return;
+        }
+
+        /* A standard transaction that presents no key slot is a different
+         * thing: the reader cannot say who this is, and will not open. */
         ESP_LOGW(k_tag, "denied: authenticated device presented no key slot");
         tap_event(false, "no key slot", NULL, result);
         return;

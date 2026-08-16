@@ -280,7 +280,21 @@ static esp_err_t read_response(pn532_t *dev, uint8_t cmd, uint8_t *out, size_t o
     }
 
     const size_t body_len = len - 2;
-    if (body_len > out_cap) {
+
+    /*
+     * A caller that asked for no body does not care what came back, and every
+     * PN532 command answers with something -- InRelease returns a status byte.
+     * Treating that as a failure logged an error on every deactivation, in the
+     * middle of an otherwise successful tap:
+     *
+     *     E nfc/pn532: response body of 1 bytes does not fit 0
+     *
+     * The frame is still checksummed below either way; only the copy is
+     * skipped.
+     */
+    if (out_cap == 0 || !out) {
+        out_cap = 0;
+    } else if (body_len > out_cap) {
         ESP_LOGE(k_tag, "response body of %u bytes does not fit %u", (unsigned)body_len, (unsigned)out_cap);
         return ESP_ERR_INVALID_SIZE;
     }
@@ -299,8 +313,13 @@ static esp_err_t read_response(pn532_t *dev, uint8_t cmd, uint8_t *out, size_t o
         return ESP_ERR_INVALID_CRC;
     }
 
-    memcpy(out, f + i + 6, body_len);
-    *out_len = body_len;
+    /* Guarded, because out_cap of 0 above means the caller passed no buffer at
+     * all -- copying into it would be the crash that check exists to avoid. */
+    const size_t copied = (out && out_cap) ? body_len : 0;
+    if (copied) {
+        memcpy(out, f + i + 6, copied);
+    }
+    *out_len = copied;
     return ESP_OK;
 }
 
