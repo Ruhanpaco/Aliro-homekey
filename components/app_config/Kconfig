@@ -46,6 +46,25 @@ config ALIRO_NFC_SPI_CS
     default 11 if IDF_TARGET_ESP32C6 || IDF_TARGET_ESP32H2
     default 5
 
+config ALIRO_NFC_ECP_BEACON
+    bool "Emit the Apple ECP beacon before each poll"
+    default n
+    help
+        Broadcasts an 18-byte Apple ECP frame naming this reader and the Aliro
+        profile, which is what lets a locked phone offer its credential without
+        the wallet being opened. Without it a tap needs the key picked in
+        Wallet first.
+
+        Off by default because it is unproven here and the first attempt broke
+        the reader outright: every InListPassiveTarget after a beacon came back
+        "no ACK", so no card was ever detected. The frame layout matches two
+        working implementations, but the surrounding register writes and
+        timeout changes clearly leave this driver's frame handling out of step,
+        and that is not diagnosable without a board.
+
+        Turn it on to work on that. Watch for "0x4A: no ACK" in the log, which
+        means the bus went out of step again.
+
 config ALIRO_NFC_IRQ
     int "IRQ pin (-1 if unused)"
     default -1

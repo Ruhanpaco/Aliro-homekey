@@ -574,6 +574,14 @@ static void broadcast_ecp(pn532_t *dev)
         return;
     }
 
+    /*
+     * Every failure here is tolerated and none of it is retried, because the
+     * beacon is worth nothing next to the poll that follows it. The first
+     * version of this took the reader out entirely: the chip was found at
+     * boot and then every InListPassiveTarget answered "0x4A: no ACK", which
+     * is a bus left mid-frame rather than a chip that stopped working.
+     */
+
     (void)set_rf_timeouts(dev, ECP_ATR_RES_CODE, ECP_TIMEOUT_CODE);
     (void)write_ciu_register(dev, REG_CIU_TX_MODE, 0x00);
     (void)write_ciu_register(dev, REG_CIU_RX_MODE, 0x00);
@@ -629,6 +637,7 @@ static esp_err_t pn532_start(pn532_t *dev)
     ESP_RETURN_ON_ERROR(pn532_command(dev, CMD_RF_CONFIGURATION, field, sizeof(field), NULL, 0, NULL, 200), k_tag,
                         "RFConfiguration(field) failed");
 
+#if CONFIG_ALIRO_NFC_ECP_BEACON
     bool have_reader_id = false;
     for (size_t i = 0; i < PN532_ECP_READER_ID_LEN; i++) {
         if (dev->cfg.reader_id[i] != 0) {
@@ -638,10 +647,12 @@ static esp_err_t pn532_start(pn532_t *dev)
     }
     if (have_reader_id) {
         build_ecp_frame(dev);
-        ESP_LOGI(k_tag, "ECP beacon armed; a locked phone can be tapped without opening its wallet");
+        ESP_LOGW(k_tag, "ECP beacon armed -- this is unproven and has broken polling before; "
+                        "watch for '0x4A: no ACK'");
     } else {
         ESP_LOGW(k_tag, "no reader identifier, so no ECP beacon: a phone must have its key selected before a tap");
     }
+#endif
 
     dev->ready = true;
     ESP_LOGI(k_tag, "reader ready, waiting for a device");
@@ -669,7 +680,9 @@ bool pn532_activate(void)
      * frame tells it a reader wanting Aliro is present. Order matters -- this
      * is the cadence a phone expects, beacon then WUPA.
      */
+#if CONFIG_ALIRO_NFC_ECP_BEACON
     broadcast_ecp(dev);
+#endif
 
     const uint8_t params[] = {0x01, 0x00}; /* one target, 106 kbps type A */
     uint8_t found[64] = {0};
