@@ -488,67 +488,6 @@ static void wake(pn532_t *dev)
     }
 }
 
-static esp_err_t pn532_start(pn532_t *dev)
-{
-
-    ESP_RETURN_ON_ERROR(bus_init(dev), k_tag, "bus init failed");
-    hardware_reset(dev);
-    wake(dev);
-
-    /* The chip may be asleep; the first command after power-up is routinely
-     * lost, so ask twice before believing it is absent. */
-    uint8_t version[4] = {0};
-    size_t version_len = 0;
-    esp_err_t err = pn532_command(dev, CMD_GET_FIRMWARE_VERSION, NULL, 0, version, sizeof(version), &version_len, 200);
-    if (err != ESP_OK) {
-        vTaskDelay(pdMS_TO_TICKS(50));
-        err = pn532_command(dev, CMD_GET_FIRMWARE_VERSION, NULL, 0, version, sizeof(version), &version_len, 500);
-    }
-    if (err != ESP_OK || version_len < 4) {
-        ESP_LOGE(k_tag, "no PN532 answered on the configured %s pins", is_spi(dev) ? "SPI" : "I2C");
-        return err == ESP_OK ? ESP_ERR_NOT_FOUND : err;
-    }
-
-    dev->fw_major = version[1];
-    dev->fw_minor = version[2];
-    ESP_LOGI(k_tag, "PN532 found, firmware %u.%u", dev->fw_major, dev->fw_minor);
-
-    /* Normal mode, no SAM, 1 s timeout, and leave the IRQ line alone -- this
-     * driver polls the status byte rather than wiring an interrupt. */
-    const uint8_t sam[] = {0x01, 0x14, 0x00};
-    ESP_RETURN_ON_ERROR(pn532_command(dev, CMD_SAM_CONFIGURATION, sam, sizeof(sam), NULL, 0, NULL, 200), k_tag,
-                        "SAMConfiguration failed");
-
-    /* MxRtyPassiveActivation = 0: report an empty field immediately instead of
-     * blocking the reader task on every pass of the polling loop. */
-    const uint8_t retries[] = {0x05, 0xFF, 0x01, 0x00};
-    ESP_RETURN_ON_ERROR(pn532_command(dev, CMD_RF_CONFIGURATION, retries, sizeof(retries), NULL, 0, NULL, 200), k_tag,
-                        "RFConfiguration(retries) failed");
-
-    /* Field on, with automatic RF collision avoidance. */
-    const uint8_t field[] = {0x01, 0x03};
-    ESP_RETURN_ON_ERROR(pn532_command(dev, CMD_RF_CONFIGURATION, field, sizeof(field), NULL, 0, NULL, 200), k_tag,
-                        "RFConfiguration(field) failed");
-
-    bool have_reader_id = false;
-    for (size_t i = 0; i < PN532_ECP_READER_ID_LEN; i++) {
-        if (dev->cfg.reader_id[i] != 0) {
-            have_reader_id = true;
-            break;
-        }
-    }
-    if (have_reader_id) {
-        build_ecp_frame(dev);
-        ESP_LOGI(k_tag, "ECP beacon armed; a locked phone can be tapped without opening its wallet");
-    } else {
-        ESP_LOGW(k_tag, "no reader identifier, so no ECP beacon: a phone must have its key selected before a tap");
-    }
-
-    dev->ready = true;
-    ESP_LOGI(k_tag, "reader ready, waiting for a device");
-    return ESP_OK;
-}
-
 /* --- Apple ECP, the beacon that wakes a locked phone --------------------- */
 
 /**
@@ -646,6 +585,67 @@ static void broadcast_ecp(pn532_t *dev)
         set_rf_timeouts(dev, ECP_ATR_RES_CODE, ECP_EXCHANGE_CODE) != ESP_OK) {
         ESP_LOGW(k_tag, "could not restore the CRC engines after the ECP beacon; taps may stop being read");
     }
+}
+
+static esp_err_t pn532_start(pn532_t *dev)
+{
+
+    ESP_RETURN_ON_ERROR(bus_init(dev), k_tag, "bus init failed");
+    hardware_reset(dev);
+    wake(dev);
+
+    /* The chip may be asleep; the first command after power-up is routinely
+     * lost, so ask twice before believing it is absent. */
+    uint8_t version[4] = {0};
+    size_t version_len = 0;
+    esp_err_t err = pn532_command(dev, CMD_GET_FIRMWARE_VERSION, NULL, 0, version, sizeof(version), &version_len, 200);
+    if (err != ESP_OK) {
+        vTaskDelay(pdMS_TO_TICKS(50));
+        err = pn532_command(dev, CMD_GET_FIRMWARE_VERSION, NULL, 0, version, sizeof(version), &version_len, 500);
+    }
+    if (err != ESP_OK || version_len < 4) {
+        ESP_LOGE(k_tag, "no PN532 answered on the configured %s pins", is_spi(dev) ? "SPI" : "I2C");
+        return err == ESP_OK ? ESP_ERR_NOT_FOUND : err;
+    }
+
+    dev->fw_major = version[1];
+    dev->fw_minor = version[2];
+    ESP_LOGI(k_tag, "PN532 found, firmware %u.%u", dev->fw_major, dev->fw_minor);
+
+    /* Normal mode, no SAM, 1 s timeout, and leave the IRQ line alone -- this
+     * driver polls the status byte rather than wiring an interrupt. */
+    const uint8_t sam[] = {0x01, 0x14, 0x00};
+    ESP_RETURN_ON_ERROR(pn532_command(dev, CMD_SAM_CONFIGURATION, sam, sizeof(sam), NULL, 0, NULL, 200), k_tag,
+                        "SAMConfiguration failed");
+
+    /* MxRtyPassiveActivation = 0: report an empty field immediately instead of
+     * blocking the reader task on every pass of the polling loop. */
+    const uint8_t retries[] = {0x05, 0xFF, 0x01, 0x00};
+    ESP_RETURN_ON_ERROR(pn532_command(dev, CMD_RF_CONFIGURATION, retries, sizeof(retries), NULL, 0, NULL, 200), k_tag,
+                        "RFConfiguration(retries) failed");
+
+    /* Field on, with automatic RF collision avoidance. */
+    const uint8_t field[] = {0x01, 0x03};
+    ESP_RETURN_ON_ERROR(pn532_command(dev, CMD_RF_CONFIGURATION, field, sizeof(field), NULL, 0, NULL, 200), k_tag,
+                        "RFConfiguration(field) failed");
+
+    bool have_reader_id = false;
+    for (size_t i = 0; i < PN532_ECP_READER_ID_LEN; i++) {
+        if (dev->cfg.reader_id[i] != 0) {
+            have_reader_id = true;
+            break;
+        }
+    }
+    if (have_reader_id) {
+        build_ecp_frame(dev);
+        ESP_LOGI(k_tag, "ECP beacon armed; a locked phone can be tapped without opening its wallet");
+    } else {
+        ESP_LOGW(k_tag, "no reader identifier, so no ECP beacon: a phone must have its key selected before a tap");
+    }
+
+    dev->ready = true;
+    ESP_LOGI(k_tag, "reader ready, waiting for a device");
+    return ESP_OK;
 }
 
 /* --- polling loop -------------------------------------------------------- */
