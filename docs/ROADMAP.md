@@ -95,12 +95,43 @@ full exchange and the key-slot lookup named the credential — `granted: 'matter
 ev1' (standard transaction)`. The standard path is what a phone runs the first
 time it meets a reader, so that is the whole protocol proven end to end.
 
-What is not proven is the rest of the ecosystem. The Google and Samsung wallets
-are untested. Express Mode — a tap that opens the door without unlocking the
-phone or picking the key in Wallet — has not been available to select in Apple
-Home; selecting the key manually and presenting it works. That may be
-certification, since the accessory reports itself as an uncertified test vendor,
-but it is a guess and not something the logs can settle.
+The Google and Samsung wallets remain untested.
+
+### Express Mode is not coming, and it is not a bug
+
+Opening the door means unlocking the phone, opening Wallet, picking the key and
+presenting it. Tapping a locked phone — Express Mode — does nothing, and the
+option cannot be selected in Apple Home. This gets rediscovered as a bug about
+once a session, so: it is not one, and there is nothing in this firmware to fix.
+
+Espressif's own Aliro reference design behaves identically. A reviewer who
+tested it on Apple Home reported having to "unlock the iPhone and select the key
+in Wallet before tapping the NFC reader", and wrote that the limitation
+"belongs to the approval stage rather than the basic Aliro transaction" —
+Express Mode is granted to Apple-approved commercial locks, not development
+hardware. kormax's protocol research adds the mechanism: express mode is
+triggered by a TCI value the reader sends, and on a Matter Aliro lock the Aliro
+and HomeKey applets are mutually exclusive under it.
+
+Certification cannot be self-issued, and this is by construction rather than an
+oversight. A local attestation chain is two commands away — `chip-cert
+gen-att-cert` makes a self-signed PAA, which signs a PAI, which signs a DAC. The
+Certification Declaration is not: esp-matter's own certification guide notes
+that the official CD is "issued by CSA after passing certification", and a
+commissioner only trusts a PAA that is in the Distributed Compliance Ledger.
+Attestation exists so a device cannot vouch for itself; if it could, it would
+prove nothing.
+
+The path that does deliver tap-and-go on this exact hardware is Apple HomeKey
+over HomeKit, which is what rednblkx's HomeKey-ESP32 implements on an ESP32 and
+a PN532. It is a different protocol to a different ecosystem, and it is not what
+this project is for. Both are also mutually exclusive in practice: each firmware
+fills most of a 1.875 MB OTA slot, and Aliro without Matter has no way to be
+provisioned.
+
+* <https://www.matteralpha.com/industry-news/espressif-s-aliro-demo-is-here-and-it-works-great>
+* <https://github.com/kormax/aliro>
+* <https://github.com/espressif/esp-matter/blob/main/docs/en/certification.rst>
 
 ## Milestone 4 — protocol depth
 
