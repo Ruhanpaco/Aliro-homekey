@@ -1,0 +1,65 @@
+name: Hardware report
+description: A board, module or wiring combination that does or does not work
+labels: ["hardware"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Both outcomes are worth filing. "This exact module works on these pins"
+        is as useful to the next person as a failure, and there is no table of
+        known-good hardware yet because nobody has written one.
+
+  - type: dropdown
+    id: outcome
+    attributes:
+      label: Did it work
+      options:
+        - Works
+        - Works, with a caveat
+        - Does not work
+    validations:
+      required: true
+
+  - type: input
+    id: board
+    attributes:
+      label: Board
+      placeholder: ESP32-WROOM-32 devkit, 4 MB flash
+    validations:
+      required: true
+
+  - type: input
+    id: module
+    attributes:
+      label: NFC module
+      description: Which part, and where it came from if it is a clone.
+      placeholder: PN532 red board v3, AliExpress
+    validations:
+      required: true
+
+  - type: textarea
+    id: wiring
+    attributes:
+      label: Wiring
+      description: Pin by pin, including the bus and any DIP switch positions.
+      placeholder: |
+        SPI: SCK 18, MISO 19, MOSI 23, CS 5
+        DIP switches 1 ON, 2 OFF
+        Powered from 3V3 on the devkit
+    validations:
+      required: true
+
+  - type: input
+    id: power
+    attributes:
+      label: Power
+      placeholder: USB from a laptop / 5 V 2 A supply / bench supply
+    validations:
+      required: true
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Boot log
+      description: The lines around `nfc/pn532` are the interesting ones.
+      render: shell

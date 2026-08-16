@@ -1,0 +1,49 @@
+name: NFC frontend driver
+description: Support for an NFC chip that has no driver yet
+labels: ["driver", "hardware"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Only the PN532 has a driver today. `nfc_transport` is the seam a new one
+        implements — see [docs/ARCHITECTURE.md](../../docs/ARCHITECTURE.md).
+
+  - type: input
+    id: chip
+    attributes:
+      label: Which chip
+      placeholder: PN5180 / ST25R3916 / RC522 / PN7160
+    validations:
+      required: true
+
+  - type: dropdown
+    id: bus
+    attributes:
+      label: Bus
+      options:
+        - SPI
+        - I2C
+        - UART
+        - More than one
+    validations:
+      required: true
+
+  - type: dropdown
+    id: offering
+    attributes:
+      label: Are you offering to write it
+      options:
+        - Yes, I want to write it
+        - I can test it on hardware but not write it
+        - Just requesting
+    validations:
+      required: true
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything known about it
+      description: >
+        Datasheet quirks, an existing library worth reading, whether the part
+        can transmit a raw frame. That last one decides whether Express Mode is
+        reachable on it.

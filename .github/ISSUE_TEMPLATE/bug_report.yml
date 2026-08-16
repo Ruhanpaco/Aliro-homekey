@@ -1,0 +1,71 @@
+name: Bug report
+description: Something behaves differently from what the docs say
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The serial log is almost always the fastest way to find this. If you can
+        attach one, do — it beats any description.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: And what you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to reproduce it
+      placeholder: |
+        1. Flash firmware.bin from v0.4
+        2. Add the lock in Apple Home
+        3. Tap the phone
+    validations:
+      required: true
+
+  - type: input
+    id: board
+    attributes:
+      label: Board
+      placeholder: ESP32-WROOM-32, 4 MB flash
+    validations:
+      required: true
+
+  - type: input
+    id: nfc
+    attributes:
+      label: NFC frontend and how it is wired
+      placeholder: PN532 over SPI, sck 18 miso 19 mosi 23 cs 5
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Firmware
+      description: The release you flashed, or the commit if you built it.
+      placeholder: v0.4, firmware.bin
+    validations:
+      required: true
+
+  - type: dropdown
+    id: build
+    attributes:
+      label: Which build
+      options:
+        - With Matter
+        - Without Matter
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Serial log
+      description: From boot to the failure. Paste it as-is; it is rendered as a log block.
+      render: shell

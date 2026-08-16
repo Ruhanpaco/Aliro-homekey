@@ -1,0 +1,36 @@
+name: Idea
+description: A feature or direction worth arguing about before anyone builds it
+labels: ["idea"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ideas are welcome, including ones that get rejected. Read
+        [docs/ROADMAP.md](../../docs/ROADMAP.md) first — it says what this
+        project is deliberately not doing, and why.
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: The idea
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: What problem it solves
+      description: >
+        For whom, and how often. A door that opens is the only real measure
+        here; features that only look good in a README are the ones to avoid.
+    validations:
+      required: true
+
+  - type: textarea
+    id: cost
+    attributes:
+      label: What it would cost
+      description: >
+        New dependency, more flash, another bus, more configuration for the
+        user. The app already sits at ~1.79 MB of a 1.875 MB slot in the Matter
+        build, so flash is a real budget.

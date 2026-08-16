@@ -1,0 +1,57 @@
+name: Wallet test result
+description: You tried provisioning a key from a phone wallet, and this is what happened
+labels: ["needs hardware test"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Only Apple has ever been tried. Whether a Google or Samsung credential
+        provisions and taps is genuinely unknown, so a result either way is one
+        of the most useful things anyone can contribute right now.
+
+  - type: dropdown
+    id: wallet
+    attributes:
+      label: Which wallet
+      options:
+        - Google Wallet
+        - Samsung Wallet
+        - Apple Wallet
+        - Something else
+    validations:
+      required: true
+
+  - type: input
+    id: phone
+    attributes:
+      label: Phone and OS version
+      placeholder: Pixel 9, Android 16
+    validations:
+      required: true
+
+  - type: input
+    id: controller
+    attributes:
+      label: Which app or hub commissioned the lock
+      placeholder: Google Home / SmartThings / Home Assistant / chip-tool
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: got
+    attributes:
+      label: How far it got
+      options:
+        - label: The lock commissioned
+        - label: A user was created
+        - label: An Aliro credential was provisioned (SetAliroReaderConfig accepted)
+        - label: A key appeared in the wallet
+        - label: A tap was read
+        - label: The door opened
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Serial log
+      description: From commissioning through the tap, if you have it.
+      render: shell

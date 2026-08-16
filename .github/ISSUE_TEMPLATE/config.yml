@@ -1,0 +1,12 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation
+    url: https://ruhanpaco.github.io/Aliro-homekey
+    about: Architecture, hardware, first test and roadmap.
+  - name: Is my tap supposed to need Wallet?
+    url: https://github.com/Ruhanpaco/Aliro-homekey/blob/main/docs/ROADMAP.md
+    about: >-
+      Yes, for now. Read the Express Mode section before filing it as a bug.
+  - name: Contributing
+    url: https://github.com/Ruhanpaco/Aliro-homekey/blob/main/CONTRIBUTING.md
+    about: How to build it, and the rules on AI-assisted work.
