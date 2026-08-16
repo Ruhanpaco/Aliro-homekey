@@ -928,11 +928,13 @@ static esp_err_t handle_websocket(httpd_req_t *req)
 {
     REQUIRE_AUTH(req);
     if (req->method == HTTP_GET) {
-        ESP_LOGI(k_tag, "WebSocket handshake from fd=%d", httpd_req_to_sockfd(req));
-        /* ESP-IDF has no post-handshake callback on httpd_uri_t (5.4 and 5.5
-         * both lack ws_post_handshake_cb), but it does call the handler once
-         * with HTTP_GET when the handshake completes. That is this branch, so
-         * the new client is registered here. */
+        ESP_LOGD(k_tag, "WebSocket handshake from fd=%d", httpd_req_to_sockfd(req));
+        /* httpd calls the handler once with HTTP_GET when the handshake
+         * completes, which is this branch, so the new client is registered
+         * here. httpd_uri_t also carries a ws_post_handshake_cb that would do
+         * the same thing more explicitly -- an earlier comment here claimed it
+         * does not exist on 5.4 or 5.5, which is not true. Either works; this
+         * one needs no change to the route table. */
         return handle_ws_post_handshake(req);
     }
 
