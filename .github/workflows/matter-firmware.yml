@@ -51,8 +51,11 @@ jobs:
           . "$IDF_PATH/export.sh"
           ./tools/package_firmware.sh ${{ inputs.target }} matter
 
-          # The ELF and the map stay in the build directory for backtrace
-          # decoding, but are not included in the firmware package.
+          # The ELF and the map, because a panic on this build prints raw
+          # addresses and nothing else can turn them back into lines. A
+          # backtrace you cannot decode costs a whole build cycle to diagnose;
+          # these two files cost nothing to carry.
+          cp build/aliro_homekey.elf build/aliro_homekey.map firmware/
 
       - name: Report what has to fit
         shell: bash

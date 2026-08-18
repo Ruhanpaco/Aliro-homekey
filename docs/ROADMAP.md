@@ -116,25 +116,21 @@ with no hub, and can drive the Door Lock cluster including
 under an administrator that is not Apple. It will not put a key in any wallet,
 so it answers half the question and should not be reported as more than that.
 
-### Express Mode
+### Express Mode is not coming, and it is not a bug
 
-Express Mode needs more than the Aliro APDU transaction: during discovery the
-reader must emit an Apple Enhanced Contactless Polling (ECP) frame with the
-Aliro TCI `20 42 20` and the first eight bytes of its reader group identifier.
-Without that announcement, a locked phone does not offer the credential and the
-user has to select the key in Wallet first.
+Opening the door means unlocking the phone, opening Wallet, picking the key and
+presenting it. Tapping a locked phone — Express Mode — does nothing, and the
+option cannot be selected in Apple Home. This gets rediscovered as a bug about
+once a session, so: it is not one, and there is nothing in this firmware to fix.
 
-The PN532 driver now implements the working PN532 cadence documented by
-kormax: run a normal Type-A poll, and when it finds no target, set
-`CIU_BitFraming` for an eight-bit frame and send the CRC-appended ECP beacon with
-`InCommunicateThru`. The previous attempt rewrote the CRC and timeout registers
-instead, omitted the bit-framing write, and left the next poll waiting for an
-ACK that never came. ECP is enabled by default again now that the command stream
-stays synchronized.
-
-The remaining step is a physical locked-phone test. The ordinary and fast Aliro
-transactions are proven on hardware, but this corrected discovery path should
-not be called verified until the test lock accepts a tap with Wallet closed.
+Espressif's own Aliro reference design behaves identically. A reviewer who
+tested it on Apple Home reported having to "unlock the iPhone and select the key
+in Wallet before tapping the NFC reader", and wrote that the limitation
+"belongs to the approval stage rather than the basic Aliro transaction" —
+Express Mode is granted to Apple-approved commercial locks, not development
+hardware. kormax's protocol research adds the mechanism: express mode is
+triggered by a TCI value the reader sends, and on a Matter Aliro lock the Aliro
+and HomeKey applets are mutually exclusive under it.
 
 Certification cannot be self-issued, and this is by construction rather than an
 oversight. A local attestation chain is two commands away — `chip-cert
@@ -145,14 +141,15 @@ commissioner only trusts a PAA that is in the Distributed Compliance Ledger.
 Attestation exists so a device cannot vouch for itself; if it could, it would
 prove nothing.
 
-Apple HomeKey over HomeKit, which rednblkx's HomeKey-ESP32 implements on an
-ESP32 and a PN532, is still a different protocol and ecosystem. Its working ECP
-transport is useful prior art, but this project emits the Aliro TCI and continues
-with the Aliro transaction instead.
+The path that does deliver tap-and-go on this exact hardware is Apple HomeKey
+over HomeKit, which is what rednblkx's HomeKey-ESP32 implements on an ESP32 and
+a PN532. It is a different protocol to a different ecosystem, and it is not what
+this project is for. Both are also mutually exclusive in practice: each firmware
+fills most of a 1.875 MB OTA slot, and Aliro without Matter has no way to be
+provisioned.
 
 * <https://www.matteralpha.com/industry-news/espressif-s-aliro-demo-is-here-and-it-works-great>
 * <https://github.com/kormax/aliro>
-* <https://github.com/kormax/apple-enhanced-contactless-polling/tree/main/examples#pn532>
 * <https://github.com/espressif/esp-matter/blob/main/docs/en/certification.rst>
 
 ## Milestone 4 — protocol depth
