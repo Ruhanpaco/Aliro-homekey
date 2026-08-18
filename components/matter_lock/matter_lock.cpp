@@ -27,6 +27,7 @@
 #include <esp_matter.h>
 #include <nvs.h>
 
+#include <app/AppConfig.h>
 #include <app/clusters/door-lock-server/door-lock-server.h>
 #include <app/server/CommissioningWindowManager.h>
 #include <app/server/Server.h>
@@ -415,6 +416,12 @@ extern "C" esp_err_t matter_lock_start(const matter_lock_hooks_t *hooks)
     }
 
     s_running = true;
+
+#if CHIP_CONFIG_PERSIST_SUBSCRIPTIONS
+    ESP_LOGI(k_tag, "Matter subscriptions persist across restart");
+#else
+    ESP_LOGW(k_tag, "Matter subscription persistence is disabled; controllers may stay on Updating after restart");
+#endif
 
     /*
      * Both under the stack lock: the fabric table belongs to the Matter task,

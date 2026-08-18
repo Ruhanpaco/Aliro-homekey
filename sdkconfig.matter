@@ -43,26 +43,22 @@ CONFIG_LWIP_IPV6_NUM_ADDRESSES=6
 CONFIG_LWIP_HOOK_IP6_ROUTE_DEFAULT=y
 CONFIG_LWIP_HOOK_ND6_GET_GW_DEFAULT=y
 
-# --- Coming back after a reboot, and why nothing is set here ---------------
+# --- Coming back after a reboot --------------------------------------------
 # A controller watches a lock through a subscription, and this device discards
-# every one on power down:
+# every non-persisted subscription on power down. That is what leaves Apple
+# Home on "Updating..." or "No Response" until it rediscovers the accessory
+# and creates a replacement subscription.
 #
-#     chip[IM]: No subscriptions to resume
+# CONFIG_ENABLE_PERSIST_SUBSCRIPTIONS is the ESP32 Kconfig symbol that the CHIP
+# component maps to the real chip_persist_subscriptions GN argument. Do not use
+# CONFIG_CHIP_PERSIST_SUBSCRIPTIONS: it is not a Kconfig symbol, and ESP-IDF
+# only warns before ignoring it.
 #
-# which is why a controller can show "Updating..." or "No Response" after a
-# reset until it works out for itself that the lock is back.
-#
-# Persisting them is not reachable from here. chip_persist_subscriptions is a
-# GN build argument compiled into connectedhomeip, not a Kconfig symbol -- the
-# only place esp-matter sets it is inside a custom chip platform definition
-# (examples/common/blemesh_platform/.../BUILD.gn). Assigning
-# CONFIG_CHIP_PERSIST_SUBSCRIPTIONS here was tried and the build answered
-# "unknown kconfig symbol", which is a warning rather than an error, so it
-# looked like it had worked. It had not.
-#
-# Reaching it means either patching the GN args of a stock esp-matter
-# container or carrying a custom platform, and neither is worth it before
-# somebody measures how long the gap actually is.
+# connectedhomeip derives subscription-timeout resumption from the same GN
+# argument. That retry is important here because Matter starts before the
+# application-controlled Wi-Fi station joins the network; a first CASE attempt
+# can therefore run before operational mDNS is ready.
+CONFIG_ENABLE_PERSIST_SUBSCRIPTIONS=y
 
 # --- What we do not need from esp-matter -----------------------------------
 # This firmware already has an OTA page, a serial console and a web UI, so the
