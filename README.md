@@ -25,11 +25,11 @@ for mobile access credentials, rather than any one vendor's protocol.
 > the configuration UI all work alongside it.
 >
 > What it is not: certified. Apple commissions it past an "uncertified
-> accessory" warning, and Express Mode — tapping a locked phone — is granted
-> only to Apple-approved commercial locks, so opening the door means picking
-> the key in Wallet first. Espressif's own Aliro reference behaves the same
-> way; [docs/ROADMAP.md](docs/ROADMAP.md) has the detail and the sources.
-> Google and Samsung wallets are untested.
+> accessory" warning. The PN532 polling loop emits the Aliro ECP beacon used
+> by Apple Wallet Express Mode, but that path still needs confirmation on the
+> physical test lock. [docs/ROADMAP.md](docs/ROADMAP.md) has the implementation
+> detail and the remaining validation work. Google and Samsung wallets are
+> untested.
 
 ## What this is, in plain terms
 
