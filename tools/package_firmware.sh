@@ -14,7 +14,6 @@
 #                                  padded to the full flash size and flashed at
 #                                  0x0. One file, one offset, and it overwrites
 #                                  a previous install completely.
-#   the individual images and flasher_args.json, for partial flashing.
 
 set -euo pipefail
 
@@ -41,10 +40,6 @@ if ! python -m esptool --chip "$target" merge_bin \
 fi
 
 cp aliro_homekey.bin "$out/$name.firmware.bin"
-
-cp bootloader/bootloader.bin partition_table/partition-table.bin \
-   ota_data_initial.bin flasher_args.json "$out/"
-cp flash_args "$out/" 2>/dev/null || true
 
 echo "packaged $name:"
 ls -l "$out"

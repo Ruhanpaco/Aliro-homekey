@@ -1,0 +1,75 @@
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag (e.g. v0.5)
+        required: true
+      target:
+        description: Chip to build for
+        type: choice
+        options: [esp32, esp32s3]
+        default: esp32
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: espressif/esp-matter:latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        shell: bash
+        run: |
+          set -euo pipefail
+          . "$IDF_PATH/export.sh"
+          . "$ESP_MATTER_PATH/export.sh"
+          idf.py -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.matter" \
+                 set-target ${{ inputs.target }} build
+
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+          . "$IDF_PATH/export.sh"
+          ./tools/package_firmware.sh ${{ inputs.target }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ inputs.target }}
+          path: firmware/
+          retention-days: 1
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Collect artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Flatten into release directory
+        run: |
+          mkdir -p release
+          find artifacts/ -name '*.bin' -exec cp {} release/ \;
+          echo "Release files:"
+          ls -l release/
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag }}
+          name: "${{ inputs.tag }} [beta]"
+          prerelease: true
+          files: release/*
+          body: |
+            Firmware for ${{ inputs.tag }}.
+
+            Flash the `.factory.bin` at offset `0x0` on a fresh board.
+            Use the `.firmware.bin` for OTA updates from the web UI.
