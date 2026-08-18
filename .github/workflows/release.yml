@@ -9,7 +9,7 @@ on:
       target:
         description: Chip to build for
         type: choice
-        options: [esp32, esp32s3]
+        options: [esp32, esp32c3, esp32s3]
         default: esp32
 
 jobs:
