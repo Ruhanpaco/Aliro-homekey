@@ -171,6 +171,21 @@ esp_err_t matter_lock_release_reader_config(void);
  */
 void matter_lock_report_lock_state(bool locked);
 
+typedef enum {
+    MATTER_LOCK_OPERATION_UNSPECIFIED,
+    MATTER_LOCK_OPERATION_ALIRO,
+    MATTER_LOCK_OPERATION_AUTO,
+} matter_lock_operation_source_t;
+
+/**
+ * @brief Publish LockState and a standard Matter LockOperation event.
+ *
+ * Google Home and SmartThings use this event for lock activity history. The
+ * plain state-reporting API remains available for state synchronization that
+ * must not create a duplicate activity entry.
+ */
+void matter_lock_report_operation(bool locked, matter_lock_operation_source_t source);
+
 #ifdef __cplusplus
 }
 #endif

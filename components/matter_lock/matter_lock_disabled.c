@@ -89,4 +89,10 @@ void matter_lock_report_lock_state(bool locked)
     (void)locked;
 }
 
+void matter_lock_report_operation(bool locked, matter_lock_operation_source_t source)
+{
+    (void)locked;
+    (void)source;
+}
+
 #endif /* !CONFIG_ALIRO_MATTER_ENABLE */
