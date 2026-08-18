@@ -50,13 +50,10 @@ static const char *const k_tag = "nfc/pn532";
 #define CMD_IN_LIST_PASSIVE_TARGET 0x4A
 #define CMD_IN_RELEASE             0x52
 
-/*
- * CIU registers on the PN532's contactless interface unit. Bit 7 of each is
- * "compute and append/check CRC"; clearing it is what lets a raw frame carry
- * its own CRC_A, which the ECP beacon below does.
- */
-#define REG_CIU_TX_MODE 0x6302
-#define REG_CIU_RX_MODE 0x6303
+/* InListPassiveTarget leaves the last-byte framing set for its seven-bit
+ * REQA/WUPA. ECP is an ordinary byte-aligned frame, so reset TxLastBits before
+ * handing it to InCommunicateThru. */
+#define REG_CIU_BIT_FRAMING 0x633D
 
 /* SPI is byte-addressed by a leading operation code, and the bus runs
  * LSB-first -- the one detail that silently produces garbage if missed. */
@@ -493,8 +490,8 @@ static void wake(pn532_t *dev)
 /**
  * @brief ISO 14443-A CRC, seeded at 0x6363.
  *
- * The beacon carries its own, because the chip's CRC engine is switched off
- * while it goes out.
+ * InCommunicateThru sends the raw bytes supplied by the host, so the beacon
+ * includes the on-air CRC itself.
  */
 static uint16_t crc_a(const uint8_t *data, size_t len)
 {
@@ -513,24 +510,6 @@ static esp_err_t write_ciu_register(pn532_t *dev, uint16_t reg, uint8_t value)
     const uint8_t params[] = {(uint8_t)(reg >> 8), (uint8_t)(reg & 0xFF), value};
     return pn532_command(dev, CMD_WRITE_REGISTER, params, sizeof(params), NULL, 0, NULL, 100);
 }
-
-/**
- * @brief RFConfiguration item 0x02: ATR_RES and non-DEP frame timeouts.
- *
- * The code is an exponent -- the timeout is 100 us * 2^(code - 1). The beacon
- * wants the shortest useful wait because nothing ever answers it; leaving the
- * APDU-length timeout in place would spend most of every poll cycle waiting
- * for a reply that is not coming.
- */
-static esp_err_t set_rf_timeouts(pn532_t *dev, uint8_t atr_res_code, uint8_t non_dep_code)
-{
-    const uint8_t params[] = {0x02, 0x00, atr_res_code, non_dep_code};
-    return pn532_command(dev, CMD_RF_CONFIGURATION, params, sizeof(params), NULL, 0, NULL, 100);
-}
-
-#define ECP_TIMEOUT_CODE     0x04 /* 0.8 ms, for the beacon */
-#define ECP_ATR_RES_CODE     0x0B /* 102 ms */
-#define ECP_EXCHANGE_CODE    0x0D /* 410 ms, restored for APDUs */
 
 /**
  * @brief Build the 18-byte Aliro ECP frame from the reader group identifier.
@@ -558,41 +537,58 @@ static void build_ecp_frame(pn532_t *dev)
     ESP_LOG_BUFFER_HEX_LEVEL(k_tag, dev->ecp_frame, PN532_ECP_FRAME_LEN, ESP_LOG_DEBUG);
 }
 
+/** @brief Arm ECP for the current reader identity, or disable it when absent. */
+static void configure_ecp(pn532_t *dev)
+{
+    dev->ecp_armed = false;
+
+    for (size_t i = 0; i < PN532_ECP_READER_ID_LEN; i++) {
+        if (dev->cfg.reader_id[i] != 0) {
+            build_ecp_frame(dev);
+            ESP_LOGI(k_tag, "ECP beacon armed for Apple Wallet express mode");
+            return;
+        }
+    }
+
+    ESP_LOGW(k_tag, "no reader identifier, so no ECP beacon: a phone must have its key selected before a tap");
+}
+
 /**
- * @brief Broadcast the beacon, then put the chip back how it was.
+ * @brief Broadcast the beacon after an empty Type-A poll.
  *
- * Fire and forget: an ECP frame is an announcement, and a chip-side timeout is
- * the expected outcome rather than a failure.
+ * InListPassiveTarget is deliberately the setup step. Besides checking for an
+ * already-present target, it puts all of the PN532's Type-A registers into a
+ * known state. Its REQA/WUPA is a seven-bit frame, however, while ECP is byte
+ * aligned, so CIU_BitFraming is the one register that must be changed before
+ * InCommunicateThru. The ECP frame already includes CRC_A; InCommunicateThru
+ * transmits these bytes as supplied.
  *
- * The restore is load-bearing. Leaving the CRC engines off does not announce
- * itself -- the next InListPassiveTarget simply stops activating cards, and an
- * ordinary tap quietly goes back to not working with nothing in the log.
+ * No target answers ECP directly. The normal PN532 response is therefore its
+ * 0x01 timeout status, which pn532_command still reads in full so the next
+ * InListPassiveTarget starts on a clean command boundary.
  */
-static void broadcast_ecp(pn532_t *dev)
+static esp_err_t broadcast_ecp(pn532_t *dev)
 {
     if (!dev->ecp_armed) {
-        return;
+        return ESP_OK;
     }
 
-    /*
-     * Every failure here is tolerated and none of it is retried, because the
-     * beacon is worth nothing next to the poll that follows it. The first
-     * version of this took the reader out entirely: the chip was found at
-     * boot and then every InListPassiveTarget answered "0x4A: no ACK", which
-     * is a bus left mid-frame rather than a chip that stopped working.
-     */
+    ESP_RETURN_ON_ERROR(write_ciu_register(dev, REG_CIU_BIT_FRAMING, 0x00), k_tag,
+                        "could not set byte framing for the ECP beacon");
 
-    (void)set_rf_timeouts(dev, ECP_ATR_RES_CODE, ECP_TIMEOUT_CODE);
-    (void)write_ciu_register(dev, REG_CIU_TX_MODE, 0x00);
-    (void)write_ciu_register(dev, REG_CIU_RX_MODE, 0x00);
+    uint8_t status = 0;
+    size_t status_len = 0;
+    ESP_RETURN_ON_ERROR(pn532_command(dev, CMD_IN_COMMUNICATE_THRU, dev->ecp_frame, PN532_ECP_FRAME_LEN,
+                                      &status, sizeof(status), &status_len, 100),
+                        k_tag, "ECP transmission failed");
+    ESP_RETURN_ON_FALSE(status_len == 1, ESP_ERR_INVALID_RESPONSE, k_tag, "ECP returned no status");
 
-    (void)pn532_command(dev, CMD_IN_COMMUNICATE_THRU, dev->ecp_frame, PN532_ECP_FRAME_LEN, NULL, 0, NULL, 100);
-
-    if (write_ciu_register(dev, REG_CIU_TX_MODE, 0x80) != ESP_OK ||
-        write_ciu_register(dev, REG_CIU_RX_MODE, 0x80) != ESP_OK ||
-        set_rf_timeouts(dev, ECP_ATR_RES_CODE, ECP_EXCHANGE_CODE) != ESP_OK) {
-        ESP_LOGW(k_tag, "could not restore the CRC engines after the ECP beacon; taps may stop being read");
+    /* 0x01 is the expected PN532 "timeout" status: the beacon is a broadcast,
+     * not a request. A zero status is harmless if a device did answer it. */
+    if ((status & 0x3F) != 0x00 && (status & 0x3F) != 0x01) {
+        ESP_LOGD(k_tag, "ECP returned RF status 0x%02X", status);
     }
+    return ESP_OK;
 }
 
 static esp_err_t pn532_start(pn532_t *dev)
@@ -632,26 +628,21 @@ static esp_err_t pn532_start(pn532_t *dev)
     ESP_RETURN_ON_ERROR(pn532_command(dev, CMD_RF_CONFIGURATION, retries, sizeof(retries), NULL, 0, NULL, 200), k_tag,
                         "RFConfiguration(retries) failed");
 
+    /* Restore the documented PN532 timing defaults explicitly. In particular,
+     * InCommunicateThru must finish its expected no-answer response inside the
+     * host's 100 ms command timeout. This also recovers a module that retained
+     * the older ECP implementation's 409.6 ms timeout across an MCU reboot. */
+    const uint8_t timings[] = {0x02, 0x00, 0x0B, 0x0A};
+    ESP_RETURN_ON_ERROR(pn532_command(dev, CMD_RF_CONFIGURATION, timings, sizeof(timings), NULL, 0, NULL, 200), k_tag,
+                        "RFConfiguration(timings) failed");
+
     /* Field on, with automatic RF collision avoidance. */
     const uint8_t field[] = {0x01, 0x03};
     ESP_RETURN_ON_ERROR(pn532_command(dev, CMD_RF_CONFIGURATION, field, sizeof(field), NULL, 0, NULL, 200), k_tag,
                         "RFConfiguration(field) failed");
 
 #if CONFIG_ALIRO_NFC_ECP_BEACON
-    bool have_reader_id = false;
-    for (size_t i = 0; i < PN532_ECP_READER_ID_LEN; i++) {
-        if (dev->cfg.reader_id[i] != 0) {
-            have_reader_id = true;
-            break;
-        }
-    }
-    if (have_reader_id) {
-        build_ecp_frame(dev);
-        ESP_LOGW(k_tag, "ECP beacon armed -- this is unproven and has broken polling before; "
-                        "watch for '0x4A: no ACK'");
-    } else {
-        ESP_LOGW(k_tag, "no reader identifier, so no ECP beacon: a phone must have its key selected before a tap");
-    }
+    configure_ecp(dev);
 #endif
 
     dev->ready = true;
@@ -674,24 +665,23 @@ bool pn532_activate(void)
         return false;
     }
 
-    /*
-     * Beacon first, then poll. A phone that is unlocked and showing its key
-     * answers the poll on its own; a locked one only answers after the ECP
-     * frame tells it a reader wanting Aliro is present. Order matters -- this
-     * is the cadence a phone expects, beacon then WUPA.
-     */
-#if CONFIG_ALIRO_NFC_ECP_BEACON
-    broadcast_ecp(dev);
-#endif
-
     const uint8_t params[] = {0x01, 0x00}; /* one target, 106 kbps type A */
     uint8_t found[64] = {0};
     size_t found_len = 0;
 
     const esp_err_t err =
         pn532_command(dev, CMD_IN_LIST_PASSIVE_TARGET, params, sizeof(params), found, sizeof(found), &found_len, 100);
-    if (err != ESP_OK || found_len < 1 || found[0] == 0) {
-        return false; /* empty field is the normal case, not an error */
+    if (err != ESP_OK || found_len < 1) {
+        return false;
+    }
+    if (found[0] == 0) {
+        /* ECP belongs after an unsuccessful Type-A poll. That poll configures
+         * the PN532 for NFC-A; the next pass supplies the WUPA/REQA to which a
+         * phone that selected the Aliro credential responds. */
+#if CONFIG_ALIRO_NFC_ECP_BEACON
+        (void)broadcast_ecp(dev);
+#endif
+        return false; /* an empty field is the normal case, not an error */
     }
 
     /*
@@ -780,6 +770,13 @@ esp_err_t pn532_begin(const pn532_config_t *cfg)
      */
     static bool started;
     if (started) {
+#if CONFIG_ALIRO_NFC_ECP_BEACON
+        /* Matter provisioning can replace the reader group identifier while
+         * leaving the PN532 bus running. Keep the radio setup, but rebuild the
+         * identity-bearing ECP frame before the reader task resumes. */
+        memcpy(s_pn532.cfg.reader_id, cfg->reader_id, sizeof(s_pn532.cfg.reader_id));
+        configure_ecp(&s_pn532);
+#endif
         return ESP_OK;
     }
 
