@@ -628,6 +628,26 @@ static void report_lock_state(intptr_t locked)
     DoorLockServer::Instance().SetLockState(s_endpoint_id, locked ? DlLockState::kLocked : DlLockState::kUnlocked);
 }
 
+static void report_lock_operation(intptr_t encoded)
+{
+    const bool locked = (encoded & 1) != 0;
+    const matter_lock_operation_source_t source =
+        static_cast<matter_lock_operation_source_t>(static_cast<unsigned>(encoded) >> 1);
+
+    chip::app::Clusters::DoorLock::OperationSourceEnum matter_source =
+        chip::app::Clusters::DoorLock::OperationSourceEnum::kUnspecified;
+    if (source == MATTER_LOCK_OPERATION_ALIRO) {
+        matter_source = chip::app::Clusters::DoorLock::OperationSourceEnum::kAliro;
+    } else if (source == MATTER_LOCK_OPERATION_AUTO) {
+        matter_source = chip::app::Clusters::DoorLock::OperationSourceEnum::kAuto;
+    }
+
+    if (!DoorLockServer::Instance().SetLockState(
+            s_endpoint_id, locked ? DlLockState::kLocked : DlLockState::kUnlocked, matter_source)) {
+        ESP_LOGE(k_tag, "could not publish the Matter lock operation");
+    }
+}
+
 extern "C" void matter_lock_report_lock_state(bool locked)
 {
     if (!s_running) {
@@ -636,6 +656,17 @@ extern "C" void matter_lock_report_lock_state(bool locked)
     /* Called from the reader task the instant a tap is granted, so it must not
      * touch the cluster directly. */
     (void)chip::DeviceLayer::PlatformMgr().ScheduleWork(report_lock_state, locked ? 1 : 0);
+}
+
+extern "C" void matter_lock_report_operation(bool locked, matter_lock_operation_source_t source)
+{
+    if (!s_running) {
+        return;
+    }
+    /* SetLockState emits the standard LockOperation event. Run it on the CHIP
+     * task because taps and the hardware relock timer originate elsewhere. */
+    const intptr_t encoded = (static_cast<intptr_t>(source) << 1) | (locked ? 1 : 0);
+    (void)chip::DeviceLayer::PlatformMgr().ScheduleWork(report_lock_operation, encoded);
 }
 
 #endif /* CONFIG_ALIRO_MATTER_ENABLE */

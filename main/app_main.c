@@ -234,8 +234,32 @@ static void on_access_event_for_matter(const access_event_t *event, void *ctx)
 {
     (void)ctx;
     if (event->type == ACCESS_EVENT_LOCK_STATE) {
-        matter_lock_report_lock_state(event->locked);
+        switch (event->lock_source) {
+        case ACCESS_LOCK_SOURCE_MATTER:
+            /* The command callback reports this with its fabric and node. */
+            matter_lock_report_lock_state(event->locked);
+            break;
+        case ACCESS_LOCK_SOURCE_ALIRO:
+            matter_lock_report_operation(event->locked, MATTER_LOCK_OPERATION_ALIRO);
+            break;
+        case ACCESS_LOCK_SOURCE_AUTO:
+            matter_lock_report_operation(event->locked, MATTER_LOCK_OPERATION_AUTO);
+            break;
+        default:
+            matter_lock_report_operation(event->locked, MATTER_LOCK_OPERATION_UNSPECIFIED);
+            break;
+        }
     }
+}
+
+static esp_err_t matter_unlock(void)
+{
+    return access_control_unlock_from(ACCESS_LOCK_SOURCE_MATTER);
+}
+
+static esp_err_t matter_lock(void)
+{
+    return access_control_lock_from(ACCESS_LOCK_SOURCE_MATTER);
 }
 
 static void start_matter(void)
@@ -249,8 +273,8 @@ static void start_matter(void)
         .clear_reader_identity = reader_clear_identity,
         .add_credential = access_control_add_credential,
         .remove_credential = access_control_remove_credential,
-        .unlock = access_control_unlock,
-        .lock = access_control_lock,
+        .unlock = matter_unlock,
+        .lock = matter_lock,
         .is_locked = access_control_is_locked,
     };
 

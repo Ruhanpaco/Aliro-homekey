@@ -401,6 +401,15 @@ bool emberAfPluginDoorLockOnDoorLockCommand(EndpointId endpointId, const Nullabl
         err = OperationErrorEnum::kUnspecified;
         return false;
     }
+    /* HandleRemoteLockOperation deliberately emits only failures. Successful
+     * operations are the application's responsibility because a real lock may
+     * finish moving asynchronously. This output is synchronous, so report the
+     * completed operation now, including the originating fabric and node.
+     * Google Home and SmartThings consume this standard event for history. */
+    if (!DoorLockServer::Instance().SetLockState(endpointId, DlLockState::kLocked, OperationSourceEnum::kRemote,
+                                                 NullNullable, NullNullable, fabricIdx, nodeId)) {
+        ESP_LOGE(k_tag, "locked, but could not publish the Matter operation");
+    }
     ESP_LOGI(k_tag, "locked by a Matter controller");
     return true;
 }
@@ -413,6 +422,10 @@ bool emberAfPluginDoorLockOnDoorUnlockCommand(EndpointId endpointId, const Nulla
     if (!hooks || !hooks->unlock || hooks->unlock() != ESP_OK) {
         err = OperationErrorEnum::kUnspecified;
         return false;
+    }
+    if (!DoorLockServer::Instance().SetLockState(endpointId, DlLockState::kUnlocked, OperationSourceEnum::kRemote,
+                                                 NullNullable, NullNullable, fabricIdx, nodeId)) {
+        ESP_LOGE(k_tag, "unlocked, but could not publish the Matter operation");
     }
     ESP_LOGI(k_tag, "unlocked by a Matter controller");
     return true;

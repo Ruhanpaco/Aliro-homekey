@@ -26,7 +26,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     container:
-      image: espressif/esp-matter:latest
+      # Keep the current esp-matter APIs while pinning the ESP-IDF generation.
+      # The floating `latest` tag moved to IDF 6, which no longer provides the
+      # `json` component this firmware depends on.
+      image: espressif/esp-matter:latest_idf_v5.5.4
 
     steps:
       - uses: actions/checkout@v4

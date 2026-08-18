@@ -32,10 +32,18 @@ typedef enum {
     ACCESS_EVENT_LOCK_STATE, /*!< The lock output changed */
 } access_event_type_t;
 
+typedef enum {
+    ACCESS_LOCK_SOURCE_UNSPECIFIED, /*!< Web, console, MQTT, or another source */
+    ACCESS_LOCK_SOURCE_ALIRO,       /*!< An Aliro NFC credential opened the lock */
+    ACCESS_LOCK_SOURCE_MATTER,      /*!< A Matter controller issued the command */
+    ACCESS_LOCK_SOURCE_AUTO,        /*!< The configured relock timer expired */
+} access_lock_source_t;
+
 typedef struct {
     access_event_type_t type;
     bool granted;             /*!< TAP: the door was opened */
     bool locked;              /*!< LOCK_STATE: current state */
+    access_lock_source_t lock_source; /*!< LOCK_STATE: what caused the operation */
     const char *reason;       /*!< TAP: why it was refused, or "granted" */
     char credential[24];      /*!< TAP: label, or "" when unknown */
     char key_slot_hex[17];    /*!< TAP: key slot as hex, or "" */
@@ -101,8 +109,14 @@ void access_control_on_reader_result(const aliro_reader_result_t *result, void *
 /** @brief Drive the lock output to its unlocked state for the configured time. */
 esp_err_t access_control_unlock(void);
 
+/** @brief Unlock and retain the operation source for Matter activity logs. */
+esp_err_t access_control_unlock_from(access_lock_source_t source);
+
 /** @brief Drive the lock output back to locked now, cancelling any relock timer. */
 esp_err_t access_control_lock(void);
+
+/** @brief Lock and retain the operation source for Matter activity logs. */
+esp_err_t access_control_lock_from(access_lock_source_t source);
 
 /**
  * @brief How long an unlock lasts before the output goes back to locked.

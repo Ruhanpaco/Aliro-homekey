@@ -270,7 +270,11 @@ static void relock(void *arg)
     gpio_set_level(s_lock.gpio, LOCKED_LEVEL);
     s_locked = true;
     ESP_LOGI(k_tag, "locked");
-    notify(&(access_event_t){.type = ACCESS_EVENT_LOCK_STATE, .locked = true});
+    notify(&(access_event_t){
+        .type = ACCESS_EVENT_LOCK_STATE,
+        .locked = true,
+        .lock_source = ACCESS_LOCK_SOURCE_AUTO,
+    });
 }
 
 esp_err_t access_control_init(const lock_config_t *lock)
@@ -317,17 +321,27 @@ uint32_t access_control_unlock_ms(void)
 
 esp_err_t access_control_unlock(void)
 {
+    return access_control_unlock_from(ACCESS_LOCK_SOURCE_UNSPECIFIED);
+}
+
+esp_err_t access_control_unlock_from(access_lock_source_t source)
+{
     ESP_RETURN_ON_FALSE(s_relock_timer, ESP_ERR_INVALID_STATE, k_tag, "access control not initialized");
 
     (void)esp_timer_stop(s_relock_timer); /* a second tap re-arms the full duration */
     ESP_RETURN_ON_ERROR(gpio_set_level(s_lock.gpio, UNLOCKED_LEVEL), k_tag, "lock GPIO set failed");
     s_locked = false;
     ESP_LOGI(k_tag, "unlocked for %u ms", (unsigned)s_lock.unlock_ms);
-    notify(&(access_event_t){.type = ACCESS_EVENT_LOCK_STATE, .locked = false});
+    notify(&(access_event_t){.type = ACCESS_EVENT_LOCK_STATE, .locked = false, .lock_source = source});
     return esp_timer_start_once(s_relock_timer, (uint64_t)s_lock.unlock_ms * 1000);
 }
 
 esp_err_t access_control_lock(void)
+{
+    return access_control_lock_from(ACCESS_LOCK_SOURCE_UNSPECIFIED);
+}
+
+esp_err_t access_control_lock_from(access_lock_source_t source)
 {
     ESP_RETURN_ON_FALSE(s_relock_timer, ESP_ERR_INVALID_STATE, k_tag, "access control not initialized");
 
@@ -340,7 +354,7 @@ esp_err_t access_control_lock(void)
     if (!s_locked) {
         s_locked = true;
         ESP_LOGI(k_tag, "locked");
-        notify(&(access_event_t){.type = ACCESS_EVENT_LOCK_STATE, .locked = true});
+        notify(&(access_event_t){.type = ACCESS_EVENT_LOCK_STATE, .locked = true, .lock_source = source});
     }
     return ESP_OK;
 }
@@ -391,7 +405,7 @@ void access_control_on_reader_result(const aliro_reader_result_t *result, void *
             ESP_LOGI(k_tag, "granted: fast transaction against a stored key (%lld ms)",
                      (long long)result->duration_ms);
             tap_event(true, "granted", "fast transaction", result);
-            ESP_ERROR_CHECK_WITHOUT_ABORT(access_control_unlock());
+            ESP_ERROR_CHECK_WITHOUT_ABORT(access_control_unlock_from(ACCESS_LOCK_SOURCE_ALIRO));
             return;
         }
 
@@ -413,5 +427,5 @@ void access_control_on_reader_result(const aliro_reader_result_t *result, void *
     ESP_LOGI(k_tag, "granted: '%s' (%s transaction, %lld ms)", c->label,
              result->txn_type == ESP_ALIRO_TRANSACTION_FAST ? "fast" : "standard", (long long)result->duration_ms);
     tap_event(true, "granted", c->label, result);
-    ESP_ERROR_CHECK_WITHOUT_ABORT(access_control_unlock());
+    ESP_ERROR_CHECK_WITHOUT_ABORT(access_control_unlock_from(ACCESS_LOCK_SOURCE_ALIRO));
 }
