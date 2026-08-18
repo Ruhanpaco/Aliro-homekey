@@ -44,6 +44,13 @@ jobs:
           idf.py -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.matter" \
                  set-target ${{ inputs.target }} build
 
+          # A previous attempt used a nonexistent Kconfig symbol. ESP-IDF only
+          # warned and produced firmware without subscription persistence, so
+          # verify the generated CHIP build argument rather than trusting that
+          # the overlay was accepted.
+          grep -Fqx 'chip_persist_subscriptions = true' \
+               build/esp-idf/chip/args.gn
+
       - name: Package
         shell: bash
         run: |
