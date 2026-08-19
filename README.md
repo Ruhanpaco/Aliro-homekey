@@ -1,223 +1,317 @@
-<p align="center">
-  <img src="https://ruhanpaco.github.io/Aliro-homekey/assets/aliro-mark.svg" width="140" height="140" alt="Aliro HomeKey">
-</p>
+<div align="center">
 
-<h1 align="center">Aliro HomeKey</h1>
+<img src="https://ruhanpaco.github.io/Aliro-homekey/assets/aliro-mark.svg" width="120" alt="Aliro HomeKey logo">
 
-<p align="center">
-  <strong>An open-source Aliro reader for the ESP32</strong><br>
-  <a href="https://ruhanpaco.github.io/Aliro-homekey">Website</a> ·
-  <a href="https://github.com/Ruhanpaco/Aliro-homekey/releases">Releases</a> ·
-  <a href="docs/ARCHITECTURE.md">Architecture</a> ·
-  <a href="docs/ROADMAP.md">Roadmap</a>
-</p>
+# Aliro HomeKey
 
-Tap a phone or watch to a small ESP32 board and a door opens — where the phone
-can be an iPhone, a Pixel or a Galaxy, because the reader speaks
-[Aliro](https://csa-iot.org/all-solutions/aliro/), the cross-ecosystem standard
-for mobile access credentials, rather than any one vendor's protocol.
+### An open-source Aliro access reader for the ESP32
 
-> **Status: v0.4 beta — a phone opens the door.** Verified on an
-> ESP32-WROOM-32 with a PN532: commissioned into Apple Home, an Aliro
-> credential provisioned over Matter, and a tap read on both transaction paths
-> — a fast one in 569 ms and a standard one in 2047 ms, each ending with the
-> lock output driven. Lock and unlock from the Home app, OTA with rollback, and
-> the configuration UI all work alongside it.
->
-> What it is not: certified. Apple commissions it past an "uncertified
-> accessory" warning. The PN532 polling loop emits the Aliro ECP beacon used
-> by Apple Wallet Express Mode, but that path still needs confirmation on the
-> physical test lock. [docs/ROADMAP.md](docs/ROADMAP.md) has the implementation
-> detail and the remaining validation work. Google and Samsung wallets are
-> untested.
+[![Status](https://img.shields.io/badge/status-v0.4%20beta-ff79c6?style=for-the-badge)](docs/ROADMAP.md)
+[![Platform](https://img.shields.io/badge/platform-ESP32-8be9fd?style=for-the-badge)](https://www.espressif.com/en/products/socs/esp32)
+[![Matter](https://img.shields.io/badge/Matter-supported-50fa7b?style=for-the-badge)](docs/ARCHITECTURE.md)
+[![License](https://img.shields.io/badge/license-Apache--2.0-f1fa8c?style=for-the-badge)](LICENSE)
 
-## What this is, in plain terms
+**One reader. One standard. Multiple wallet ecosystems.**
+
+[Website](https://ruhanpaco.github.io/Aliro-homekey) · [Browser Flasher](https://ruhanpaco.github.io/Aliro-homekey) · [Architecture](docs/ARCHITECTURE.md) · [Roadmap](docs/ROADMAP.md) · [Releases](https://github.com/Ruhanpaco/Aliro-homekey/releases)
+
+</div>
+
+---
+
+## What is Aliro HomeKey?
+
+Aliro HomeKey turns an ESP32 into an experimental **Aliro access reader**. A phone or wearable can present an Aliro credential, the reader processes the transaction, and the ESP32 can drive an access-control output such as a relay, strike, or test LED.
+
+The project is designed around **Aliro**, the Connectivity Standards Alliance standard for interoperable mobile access credentials, instead of building a reader around a single wallet vendor.
 
 ```text
- Apple Wallet   Google Wallet   Samsung Wallet   other Aliro wallets
-        └───────────────┴───────┬───────┴────────────────┘
-                                │  Aliro (one protocol, all of them)
-                                ▼
-                        ESP32 Aliro Reader     ← this project
-                                │
-                                ▼
-                         Access / Lock
+┌─────────────────────────────────────────────────────────────┐
+│                    MOBILE WALLETS                           │
+│                                                             │
+│   Apple Wallet     Google Wallet     Samsung Wallet   ...   │
+└──────────────┬──────────────┬──────────────┬────────────────┘
+               │              │              │
+               └──────────────┼──────────────┘
+                              │
+                         Aliro protocol
+                              │
+                              ▼
+                  ┌─────────────────────┐
+                  │   ESP32 READER      │
+                  │                     │
+                  │ NFC · Aliro · NVS   │
+                  │ MQTT · Matter · UI  │
+                  └──────────┬──────────┘
+                             │
+                             ▼
+                       LOCK / RELAY
 ```
 
-Before Aliro, putting a key in a phone meant implementing one vendor's stack:
-Apple Home Key for iPhones, something else for Android. Projects like
-[HomeKey-ESP32](https://github.com/rednblkx/HomeKey-ESP32) do exactly that, and
-do it well — but the result is an Apple-only door.
+## Current status
 
-Aliro is a Connectivity Standards Alliance standard that all the major wallets
-implement. Build a reader once, and every compliant wallet can carry a key for
-it. That is the whole bet of this project.
+> **v0.4 beta:** a phone can open the door on tested hardware.
+
+The current implementation has been verified on an **ESP32-WROOM-32 with a PN532**. The reader has been commissioned into Apple Home, an Aliro credential has been provisioned over Matter, and both transaction paths have been exercised. The measured transactions were approximately **569 ms on the fast path** and **2047 ms on the standard path**, with the lock output driven at the end of the transaction.
+
+The surrounding product layer is also functional: Home app lock/unlock, OTA with rollback, the configuration UI, MQTT integration and Home Assistant connectivity have been exercised.
+
+This is still a **research/beta project, not a certified access-control product**. Apple currently shows an uncertified-accessory warning during commissioning. Google and Samsung wallet flows remain untested, and the physical Apple Wallet Express Mode path still needs confirmation on the test lock.
+
+For the implementation details and remaining work, see [`docs/ROADMAP.md`](docs/ROADMAP.md).
+
+## Why Aliro?
+
+Before Aliro, a phone-based access project often meant choosing one ecosystem and implementing its protocol. Aliro changes the architecture: the reader speaks a common standard while the credential can live in a supported wallet ecosystem.
+
+That makes the goal simple:
+
+**Build the reader once. Let the wallet ecosystem handle the credential experience.**
 
 ## How a tap works
 
-Aliro is ISO 7816 APDUs carried over an ISO 14443-4 NFC link (BLE and UWB exist
-in the standard too, for hands-free unlock and secure ranging; NFC comes
-first). One tap runs roughly:
+Aliro transactions use **ISO 7816 APDUs over ISO 14443-4 NFC**. BLE and UWB are also part of the broader Aliro specification for other access experiences, but NFC is the current focus of this project.
+
+A transaction broadly follows this flow:
 
 1. The reader polls for a device and selects the Aliro applet.
-2. **Expedited phase** — reader and device authenticate each other with
-   ECDH/ECDSA on P-256 and derive a session key. This is the part that decides
-   whether the tap is genuine.
-3. The device identifies its credential by **key slot**; the reader looks that
-   slot up in its own list of allowed credentials.
-4. **Exchange** closes the transaction so the phone can show its success
-   animation.
+2. The expedited phase authenticates the reader and device using P-256 cryptography and derives session material.
+3. The device identifies its credential through an Aliro key slot.
+4. The reader checks that credential against its local access data.
+5. The exchange completes and the access-control output is driven.
 
-A device the reader has seen before takes the **fast** path, which skips most
-of the handshake — the difference between a tap that feels instant and one
-that does not.
+Previously seen devices can use the **fast transaction path**, reducing the amount of work required during a tap.
 
-## What we build on
+## What powers the project?
 
-| Piece | What it gives us |
+| Project | Role |
 | --- | --- |
-| [espressif/esp-aliro](https://github.com/espressif/esp-aliro) | The Aliro protocol itself, as a prebuilt ESP-IDF component (`esp_aliro_lib`). Crypto, state machine, session handling, fast transactions. Apache-2.0, prebuilt binaries per chip and IDF version. |
-| [kormax/aliro](https://github.com/kormax/aliro) | Independent research notes on the protocol — APDUs, AIDs, key derivation, wallet behaviour. Our reference when the SDK's behaviour needs explaining. |
-| [rednblkx/HomeKey-ESP32](https://github.com/rednblkx/HomeKey-ESP32) | Prior art for how to *organise* an ESP32 access-control product: an NFC reader interface with several chip backends, an event loop, config and credential managers, a web UI. |
+| [`espressif/esp-aliro`](https://github.com/espressif/esp-aliro) | Espressif's Aliro implementation used for protocol handling, cryptography, session state and transaction processing. |
+| [`kormax/aliro`](https://github.com/kormax/aliro) | Independent protocol research and reference material for APDUs, AIDs, key derivation and wallet behaviour. |
+| [`rednblkx/HomeKey-ESP32`](https://github.com/rednblkx/HomeKey-ESP32) | Prior art for structuring an ESP32 access-control project with NFC, configuration, credentials and a web interface. |
+| **ESP-IDF** | Firmware framework, networking, storage, OTA and hardware integration. |
+| **ESP-Matter** | Optional Matter Door Lock integration and Aliro provisioning path. |
 
-**What the SDK does not give us**, and we therefore own: the NFC chip driver,
-the credential store, the access decision, lock actuation, enrollment and
-provisioning, and everything operational (UI, storage, OTA, integrations).
+The SDK handles the Aliro protocol itself. This project owns the integration around it: NFC transport, credential storage, access decisions, lock control, provisioning, configuration, OTA, MQTT, Matter integration and the device UI.
+
+## Features
+
+<table>
+<tr>
+<td width="50%">
+
+### Access reader
+
+- Aliro reader implementation
+- NFC transaction handling
+- Fast and standard transaction paths
+- Credential/key-slot based access decisions
+- Lock / relay GPIO output
+
+</td>
+<td width="50%">
+
+### Device management
+
+- Browser-based configuration UI
+- Wi-Fi setup access point
+- NVS-backed configuration
+- OTA updates with rollback
+- Hardware and pin validation
+
+</td>
+</tr>
+<tr>
+<td>
+
+### Integrations
+
+- Matter Door Lock endpoint
+- Aliro provisioning through Matter
+- MQTT
+- Home Assistant discovery
+- Lock state and tap events
+
+</td>
+<td>
+
+### Developer experience
+
+- ESP-IDF based
+- Browser flasher
+- Serial diagnostics
+- Board-specific configuration
+- Architecture and roadmap documentation
+
+</td>
+</tr>
+</table>
 
 ## Hardware
 
-- **ESP32** (default target; ESP32-S3, C3, C6, H2, P4 and others are supported
-  by the SDK — see `boards/`).
-- An external **NFC frontend**. The ESP32 has no NFC radio. Espressif's own
-  example uses an ST25R3916 (M5Stack Unit NFC); PN532 and PN7160 are the parts
-  the HomeKey community uses. Not yet chosen here — see
-  [docs/ROADMAP.md](docs/ROADMAP.md).
-- Something to switch: relay, strike, or an LED while you develop.
+The main development target is an **ESP32-WROOM-32** paired with an external NFC frontend such as the **PN532**. Other ESP32 targets supported by Espressif's Aliro SDK can be explored as the project evolves.
 
-## Build
+Typical bench setup:
 
-Requires ESP-IDF **5.2–6.0** and `openssl` on PATH.
+```text
+ESP32-WROOM-32
+      │
+      ├── PN532 NFC frontend
+      │
+      ├── Lock / relay / LED
+      │
+      └── Wi-Fi / MQTT / Matter
+```
+
+The exact wiring and supported board configuration live in [`boards/`](boards/) and the project documentation.
+
+## Quick start
+
+### 1. Install ESP-IDF
+
+Use ESP-IDF **5.2–6.0** and make sure `idf.py` and `openssl` are available in your shell.
+
+### 2. Select the target
 
 ```bash
 idf.py set-target esp32
 ```
 
+### 3. Build
+
 ```bash
 idf.py -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;boards/sdkconfig.defaults.esp32" build
 ```
+
+### 4. Flash and monitor
 
 ```bash
 idf.py -p /dev/ttyUSB0 flash monitor
 ```
 
-The first build generates a development reader identity into `main/certs/`
-(gitignored — see the README there for what it is and is not).
+The development build generates a reader identity under `main/certs/`. Generated credentials are ignored by Git and should not be committed.
 
-### Without a toolchain
+## Browser flasher
 
-`site/index.html` is a single static page that does the same job in a browser:
-it generates a P-256 reader identity with `crypto.subtle`, packs it into an NVS
-partition image, and writes it over USB with WebSerial. It has no backend, so
-the private keys never leave the tab. A board provisioned that way gets a unique
-identity instead of the development one compiled into the image; `app_main`
-prefers the NVS keys when they are present and falls back otherwise.
+You can also provision a development reader identity directly from the browser.
 
-Needs Chrome, Edge or Opera on a desktop — no other browser implements
-WebSerial.
+**[Open the Aliro HomeKey Browser Flasher →](https://ruhanpaco.github.io/Aliro-homekey)**
 
-### With Matter
+The static flasher uses browser cryptography to generate the reader identity and WebSerial to communicate with the ESP32. The private keys are generated locally in the browser and are not uploaded to a backend.
 
-Optional, and off by default. Turning it on presents the same firmware to phone
-ecosystems as a Matter **Door Lock** (cluster `0x0101`) with the Aliro
-provisioning feature, which is the standard way a controller hands a lock its
-reader key pair (`SetAliroReaderConfig`) and then enrolls the phones allowed to
-open it (`SetCredential` with an Aliro endpoint key). Nothing about a tap
-changes: the transaction is still NFC, still handled by `aliro_reader`, and
-still works with the network down.
+Use a desktop browser with WebSerial support such as Chrome, Edge or Opera.
 
-It needs [esp-matter](https://github.com/espressif/esp-matter), which is a large
-checkout with its own submodules. The easy way is Espressif's container:
+## Matter integration
+
+Matter is optional and disabled in the normal build. The Matter build exposes the firmware as a **Matter Door Lock** endpoint with Aliro provisioning support.
+
+The controller can provision the reader configuration and credentials through the Matter interaction model while the actual access transaction remains an NFC Aliro transaction.
+
+Build it using Espressif's Matter environment:
 
 ```bash
-docker run --rm -it -v "$PWD:/work" -w /work espressif/esp-matter:latest bash -lc '. $IDF_PATH/export.sh && . $ESP_MATTER_PATH/export.sh && idf.py -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.matter" set-target esp32 build'
+docker run --rm -it -v "$PWD:/work" -w /work \
+  espressif/esp-matter:latest bash -lc \
+  '. $IDF_PATH/export.sh && . $ESP_MATTER_PATH/export.sh && \
+   idf.py -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.matter" \
+   set-target esp32 build'
 ```
 
-The same build runs in CI as the `matter-firmware` workflow, which produces a
-factory image and an OTA image exactly like the ordinary build does.
+The Matter build is also produced by the `matter-firmware` GitHub Actions workflow.
 
-Two things worth knowing before flashing it:
+## Configuration
 
-- **It roughly doubles the application.** It still fits a 1.875 MB OTA slot on a
-  4 MB board, but not by much; the workflow fails the build if it stops fitting.
-- **It uses esp-matter's test attestation credentials.** Apple Home commissions
-  it anyway, after warning that the accessory is uncertified and offering to add
-  it regardless — verified on hardware, two fabrics, with lock and unlock
-  working from the Home app. `chip-tool` and Home Assistant accept it too.
-  Google and Samsung are untested. Certification is still what a shipping
-  product needs; it is not what a bench test needs.
-
-Commissioning details (the `MT:` payload, a link that renders it as a QR code,
-and the manual pairing code) are printed at boot and shown on the dashboard.
-
-## Layout
+On first boot without Wi-Fi credentials, the reader starts a setup network similar to:
 
 ```text
-├── site/               static GitHub Pages: browser flasher + project page
-├── main/               wiring only: load config, start the reader, then the network
-│   └── certs/          reader key pair + allowed credentials (generated, never committed)
-├── components/
-│   ├── app_config/     runtime config in NVS + pin validation rules
-│   ├── nfc_transport/  hardware seam: one interface, one driver per NFC chip
-│   ├── aliro_reader/   esp_aliro_lib wrapped in a polling task; owns the transaction
-│   ├── access_control/ credential store, access decision, lock output
-│   ├── net_manager/    Wi-Fi with a setup-AP fallback and captive portal
-│   ├── mqtt_manager/   lock state, tap events, Home Assistant discovery
-│   ├── matter_lock/    the Matter door lock endpoint: commissioning + Aliro provisioning
-│   └── web_server/     REST API + the embedded configuration UI
-├── boards/             per-board sdkconfig defaults
-├── tools/              development identity generation
-└── docs/               architecture, web service, roadmap
+Aliro-Setup-XXXX
+password: aliro1234
 ```
 
-## Configuring it
+The configuration UI is available at:
 
-On first boot the reader has no Wi-Fi credentials, so it starts an access
-point called `Aliro-Setup-XXXX` (password `aliro1234` by default) and serves
-its configuration UI at `http://192.168.4.1/`. Joining that network should pop
-the page up on its own.
+```text
+http://192.168.4.1/
+```
 
-The console has five pages — overview, hardware, network, MQTT and system.
-Everything about the wiring — NFC chip, SPI or I2C, every pin, the lock output
-and its polarity — is set there and stored in NVS. No rebuild to change a pin,
-and the device refuses pins that do not exist, are wired to flash, or are
-already assigned to something else.
+Configuration is stored in NVS, so changing wiring or network settings does not require rebuilding the firmware.
 
-MQTT is optional and off by default. Switched on, the reader publishes lock
-state and tap events, accepts unlock commands, and announces itself to Home
-Assistant. Details in [docs/WEB.md](docs/WEB.md).
+The device configuration covers areas such as:
 
-To see the UI without a board: `tools/build_ui_preview.py` builds a clickable
-copy from the firmware's own page.
+- NFC interface and bus
+- GPIO assignments
+- Lock output and polarity
+- Wi-Fi
+- MQTT
+- System settings
+
+## MQTT + Home Assistant
+
+MQTT is optional and disabled by default. When enabled, the reader can publish lock state and tap events, receive unlock commands and announce itself to Home Assistant.
+
+More detail is available in [`docs/WEB.md`](docs/WEB.md).
+
+## Repository layout
+
+```text
+Aliro-homekey/
+│
+├── site/                    # GitHub Pages + browser flasher
+│   ├── index.html           # WebSerial firmware flasher
+│   ├── about.html           # Project website
+│   └── styles.css           # Shared website styling
+│
+├── main/                    # Firmware entry point
+│   └── certs/               # Generated development identity material
+│
+├── components/
+│   ├── app_config/          # Runtime configuration + NVS
+│   ├── nfc_transport/       # NFC hardware abstraction
+│   ├── aliro_reader/        # Aliro transaction integration
+│   ├── access_control/      # Credentials + access decisions + lock output
+│   ├── net_manager/         # Wi-Fi + setup AP
+│   ├── mqtt_manager/        # MQTT + Home Assistant integration
+│   ├── matter_lock/         # Matter Door Lock + Aliro provisioning
+│   └── web_server/           # REST API + embedded configuration UI
+│
+├── boards/                  # Board-specific ESP-IDF defaults
+├── tools/                   # Development and firmware tooling
+├── docs/                    # Architecture, API and roadmap
+└── README.md                # You are here
+```
 
 ## Documentation
 
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — the seams, and why they are where they are
-- [docs/WEB.md](docs/WEB.md) — the configuration service, its API, and what was left out
-- [docs/FIRST-TEST.md](docs/FIRST-TEST.md) — flashing a board and what a healthy boot looks like
-- [docs/ROADMAP.md](docs/ROADMAP.md) — milestones, and the honest list of unknowns
+| Document | Purpose |
+| --- | --- |
+| [`ARCHITECTURE.md`](docs/ARCHITECTURE.md) | System boundaries, components and data flow |
+| [`WEB.md`](docs/WEB.md) | Configuration service, REST API and web UI |
+| [`FIRST-TEST.md`](docs/FIRST-TEST.md) | Hardware flashing and healthy boot procedure |
+| [`ROADMAP.md`](docs/ROADMAP.md) | Current milestones, validation work and known gaps |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | Contribution workflow and project rules |
 
 ## Contributing
 
-Contributions are welcome — a bug report, a pin table fix, a driver for
-another NFC frontend, a wallet nobody has tried yet. See
-[CONTRIBUTING.md](CONTRIBUTING.md) for how to set up, what a change has to
-clear, and the rules on AI-assisted work.
+Contributions are welcome. NFC drivers, board support, wallet testing, protocol research, documentation improvements and bug fixes are all useful.
 
-## Licence
+Before opening a pull request, please read [`CONTRIBUTING.md`](CONTRIBUTING.md) and check the current roadmap so work is aligned with the project's implementation priorities.
 
-Apache-2.0, matching `esp_aliro_lib`.
+## Important disclaimer
 
-Aliro is a trademark of the Connectivity Standards Alliance. This project is
-not affiliated with or endorsed by the CSA, Espressif, Apple, Google or
-Samsung. Interoperating with a shipping wallet requires a provisioned,
-certified reader; this is a hobbyist and research codebase.
+Aliro HomeKey is a **research and hobbyist implementation**. It is not certified for production access control.
+
+Aliro is a trademark of the Connectivity Standards Alliance. This project is not affiliated with or endorsed by the CSA, Espressif, Apple, Google or Samsung.
+
+A shipping access-control product requires the appropriate ecosystem provisioning, certification, security review and hardware validation.
+
+## License
+
+Released under the **Apache License 2.0**. See [`LICENSE`](LICENSE).
+
+<div align="center">
+
+**Aliro HomeKey** · ESP32 · Open Source
+
+[Back to top](#aliro-homekey)
+
+</div>
