@@ -117,6 +117,17 @@ static void on_got_ip(void *arg, esp_event_base_t base, int32_t id, void *data)
     (void)base;
     (void)id;
 
+    /* The default modem-sleep power save dozes the radio between beacons and
+     * misses multicast traffic sent in those gaps, which is exactly what
+     * mDNS and Matter's CASE/subscription messages are. That reads as
+     * intermittent, not total, so the symptom is not "commissioning never
+     * works" but "a subscription's ReportData goes unacknowledged for ten-plus
+     * seconds and then gets torn down", and "OperationalSessionSetup ...
+     * operational discovery failed" when a resumption's mDNS query is the
+     * packet that gets missed. Disabling power save is what esp-matter's own
+     * examples do for the same reason. */
+    ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_set_ps(WIFI_PS_NONE));
+
     const ip_event_got_ip_t *event = (const ip_event_got_ip_t *)data;
     snprintf(s_net.status.ip, sizeof(s_net.status.ip), IPSTR, IP2STR(&event->ip_info.ip));
     s_net.status.connected = true;
