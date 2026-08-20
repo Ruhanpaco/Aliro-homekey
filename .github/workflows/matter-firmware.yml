@@ -10,8 +10,8 @@ name: matter-firmware
 #
 # Output is the same pair of images the normal build produces:
 #
-#   <target>.matter.firmware.factory.bin  flash at 0x0, wipes the board
-#   <target>.matter.firmware.bin          app only, for the OTA page
+#   <target>.firmware.factory.bin  flash at 0x0, wipes the board
+#   <target>.firmware.bin          app only, for the OTA page
 
 on:
   workflow_dispatch:
@@ -59,7 +59,7 @@ jobs:
         run: |
           set -euo pipefail
           . "$IDF_PATH/export.sh"
-          ./tools/package_firmware.sh ${{ inputs.target }} matter
+          ./tools/package_firmware.sh ${{ inputs.target }}
 
           # The ELF and the map, because a panic on this build prints raw
           # addresses and nothing else can turn them back into lines. A
