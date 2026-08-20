@@ -236,8 +236,11 @@ static void on_access_event_for_matter(const access_event_t *event, void *ctx)
     if (event->type == ACCESS_EVENT_LOCK_STATE) {
         switch (event->lock_source) {
         case ACCESS_LOCK_SOURCE_MATTER:
-            /* The command callback reports this with its fabric and node. */
-            matter_lock_report_lock_state(event->locked);
+            /* The command callback in matter_lock_store.cpp already reported
+             * this, with the fabric and node attached -- calling
+             * matter_lock_report_lock_state() here too used to publish the
+             * same operation a second time, unattributed, doubling every
+             * lock-state notification a controller received. */
             break;
         case ACCESS_LOCK_SOURCE_ALIRO:
             matter_lock_report_operation(event->locked, MATTER_LOCK_OPERATION_ALIRO);
