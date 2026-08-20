@@ -48,7 +48,7 @@ config ALIRO_NFC_SPI_CS
 
 config ALIRO_NFC_ECP_BEACON
     bool "Emit the Apple ECP beacon during NFC polling"
-    default y
+    default n
     help
         Broadcasts an 18-byte Apple ECP frame naming this reader and the Aliro
         profile, which is what lets a locked phone offer its credential without
@@ -57,8 +57,23 @@ config ALIRO_NFC_ECP_BEACON
 
         The PN532 sends it after an empty Type-A poll, using that poll to set up
         the radio and resetting CIU_BitFraming to eight bits before the raw ECP
-        frame. Disable this only when debugging NFC polling or when Apple
-        Wallet support is not needed.
+        frame.
+
+        Off by default again. A rewrite of this code (PR #3, "restore Apple
+        Wallet Express Mode polling") turned the default back on believing it
+        had fixed the desync, but a board running that exact build still hit
+        it on first boot:
+
+            E nfc/pn532: broadcast_ecp(581): ECP transmission failed
+            E nfc/pn532: pn532_command(345): 0x4A: no ACK   [repeats forever]
+
+        The InCommunicateThru call for the beacon does not get its response
+        inside the timeout, and the bus never recovers -- every
+        InListPassiveTarget after it fails the same way until the chip is
+        reset. No card can be detected in that state, which is worse than the
+        problem the beacon was meant to solve. Diagnosing the actual desync
+        needs a board and a logic analyzer on the SPI/I2C lines; disabling it
+        is what gets a reader working again in the meantime.
 
 config ALIRO_NFC_IRQ
     int "IRQ pin (-1 if unused)"
