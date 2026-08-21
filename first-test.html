@@ -1,0 +1,68 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Flash Aliro HomeKey and understand what a healthy first boot proves."><title>First test · Aliro HomeKey</title><link rel="canonical" href="https://ruhanpaco.github.io/Aliro-homekey/first-test.html"><link rel="icon" href="assets/aliro-mark.svg" type="image/svg+xml"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=DM+Mono&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="assets/site.css?v=20260821"></head><body>
+<header class="nav wrap">
+  <a class="logo" href="index.html"><img src="assets/aliro-mark.svg" alt="">ALIRO <span>HOMEKEY</span></a>
+  <nav class="navlinks">
+    <a href="index.html">Overview</a>
+    <a href="architecture.html">Architecture</a>
+    <a href="hardware.html">Hardware</a>
+    <a href="roadmap.html">Roadmap</a>
+    <a href="releases.html">Versions</a>
+    <a class="button outline" href="https://github.com/Ruhanpaco/Aliro-homekey">GitHub ↗</a>
+    <a class="button primary" href="site/index.html">Open Flasher</a>
+  </nav>
+</header>
+<main class="wrap">
+<section class="page-hero">
+  <div class="kicker">03 / FIRST TEST</div>
+  <h1>Three ways onto a board.</h1>
+  <p class="lead">Pick whichever fits — build from source for full control, flash a release if you just want it running, or use the browser flasher for a unique identity with no toolchain at all.</p>
+</section>
+
+<section class="section">
+  <div class="section-head"><div class="kicker">OPTION A</div><h2>Browser flasher — no toolchain, no CLI.</h2><p class="lead">Generates a unique P-256 reader identity locally in your browser tab, builds an NVS partition image, and writes it over WebSerial. Private keys never leave the tab — there's no backend at all.</p></div>
+  <div class="actions"><a class="button primary" href="site/index.html">Open the browser flasher →</a></div>
+  <p class="muted" style="margin-top:14px;font-size:13px">Needs desktop Chrome, Edge, or Opera — WebSerial isn't implemented anywhere else.</p>
+</section>
+
+<section class="section dark">
+  <div class="section-head"><div class="kicker">OPTION B</div><h2>Flash a release — esptool only.</h2></div>
+  <p class="lead">Grab the matching pair from <a href="https://github.com/Ruhanpaco/Aliro-homekey/releases">Releases</a> for your target — <code style="background:none;padding:0">esp32</code>, <code style="background:none;padding:0">esp32c3</code>, or <code style="background:none;padding:0">esp32s3</code>.</p>
+  <pre class="code"># Wipes the board and installs everything: bootloader, partitions, app
+python -m esptool --chip esp32 write_flash 0x0 esp32.firmware.factory.bin
+
+# Or, over the device's own OTA page once it's already running:
+# open http://&lt;device-ip&gt;/#/ota and upload esp32.firmware.bin</pre>
+</section>
+
+<section class="section">
+  <div class="section-head"><div class="kicker">OPTION C</div><h2>Build from source — full control.</h2></div>
+  <p class="lead">Install ESP-IDF 5.2–6.0 and make sure <code style="background:none;padding:0">idf.py</code> and <code style="background:none;padding:0">openssl</code> are on your PATH.</p>
+  <pre class="code">idf.py set-target esp32
+idf.py -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;boards/sdkconfig.defaults.esp32" build
+idf.py -p /dev/ttyUSB0 flash monitor</pre>
+  <p class="muted" style="margin-top:14px;font-size:13px">The first build generates a development reader identity under <code style="background:none;padding:0">main/certs/</code>. It's gitignored and for development only — read <code style="background:none;padding:0">main/certs/README.md</code> before using it for anything else.</p>
+</section>
+
+<section class="section dark">
+  <div class="section-head"><div class="kicker">WHAT A HEALTHY BOOT LOOKS LIKE</div><h2>What each line actually proves.</h2></div>
+  <pre class="code">I aliro/app     : Aliro HomeKey starting
+I aliro/access  : credential 'dev-credential' registered
+I aliro/access  : lock output on GPIO 2 (active high), unlock 3000 ms
+I nfc/pn532     : PN532 found, firmware 1.6
+I aliro/reader  : reader ready, waiting for a device
+I aliro/net     : joined 'YourNetwork' -- configuration UI at http://192.168.x.x/</pre>
+  <table class="table">
+    <tr><th>Line</th><th>What it actually proves</th></tr>
+    <tr><td><code style="background:none;padding:0">credential registered</code></td><td>The Aliro SDK initialized and a credential's key slot was derived — not that a phone can use it yet.</td></tr>
+    <tr><td><code style="background:none;padding:0">PN532 found, firmware X.Y</code></td><td>The chip answered on the configured SPI/I²C pins. Wiring and bus selection agree with the physical switch.</td></tr>
+    <tr><td><code style="background:none;padding:0">reader ready, waiting for a device</code></td><td>The poll loop is running. It does not yet mean a tap will be recognized — that needs an enrolled credential.</td></tr>
+    <tr><td><code style="background:none;padding:0">joined '…' -- configuration UI at …</code></td><td>Wi-Fi connected and the web server is listening. Open that address to configure hardware, network, and lock settings.</td></tr>
+  </table>
+  <div class="callout warn"><strong>If you see <code style="background:none;padding:0">no PN532 answered on the configured SPI/I²C pins</code></strong> instead — almost always the module is on 5V instead of 3.3V, or its mode switch is still on I²C/HSU while the config says SPI. See <a href="hardware.html">Hardware</a> for the wiring table.</div>
+</section>
+</main>
+<footer class="footer wrap">
+  <span>See also <code style="background:none;padding:0">docs/FIRST-TEST.md</code> in the repo</span>
+  <a href="https://github.com/Ruhanpaco/Aliro-homekey/blob/main/docs/FIRST-TEST.md">Source doc ↗</a>
+</footer>
+</body></html>

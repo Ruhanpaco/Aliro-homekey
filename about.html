@@ -1,0 +1,51 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="About Aliro HomeKey: purpose, foundations, licensing and attribution."><title>About · Aliro HomeKey</title><link rel="canonical" href="https://ruhanpaco.github.io/Aliro-homekey/about.html"><link rel="icon" href="assets/aliro-mark.svg" type="image/svg+xml"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=DM+Mono&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="assets/site.css?v=20260821"></head><body>
+<header class="nav wrap">
+  <a class="logo" href="index.html"><img src="assets/aliro-mark.svg" alt="">ALIRO <span>HOMEKEY</span></a>
+  <nav class="navlinks">
+    <a href="index.html">Overview</a>
+    <a href="architecture.html">Architecture</a>
+    <a href="hardware.html">Hardware</a>
+    <a href="roadmap.html">Roadmap</a>
+    <a href="releases.html">Versions</a>
+    <a class="button outline" href="https://github.com/Ruhanpaco/Aliro-homekey">GitHub ↗</a>
+    <a class="button primary" href="site/index.html">Open Flasher</a>
+  </nav>
+</header>
+<main class="wrap">
+<section class="page-hero">
+  <div class="kicker">07 / ABOUT</div>
+  <h1>Build the reader once.</h1>
+  <p class="lead">Traditional mobile access systems are usually built around one ecosystem — an Apple-only door, or a Google-only one. Aliro is a Connectivity Standards Alliance protocol every major wallet speaks, so the reader doesn't have to choose. Build it once; let the wallet ecosystem handle the credential experience.</p>
+</section>
+
+<section class="section">
+  <div class="section-head"><div class="kicker">FOUNDATIONS</div><h2>What this is built on.</h2></div>
+  <table class="table">
+    <tr><th>Piece</th><th>What it gives us</th></tr>
+    <tr><td><a href="https://github.com/espressif/esp-aliro">espressif/esp-aliro</a></td><td>The Aliro protocol itself, prebuilt for ESP-IDF — crypto, state machine, session handling, fast transactions.</td></tr>
+    <tr><td><a href="https://github.com/kormax/aliro">kormax/aliro</a></td><td>Independent protocol research — APDUs, AIDs, key derivation, wallet behavior.</td></tr>
+    <tr><td><a href="https://github.com/rednblkx/HomeKey-ESP32">rednblkx/HomeKey-ESP32</a></td><td>Prior art on organizing an ESP32 access-control product — the pin tables and web layer's general shape are adapted from it, credited in NOTICE.md.</td></tr>
+  </table>
+  <p class="lead" style="margin-top:22px">What the SDK doesn't give us, and this project therefore owns: the NFC chip driver, the credential store, the access decision, lock actuation, enrollment, and everything operational — UI, storage, OTA, MQTT, Matter.</p>
+</section>
+
+<section class="section dark">
+  <div class="section-head"><div class="kicker">LICENSE &amp; ATTRIBUTION</div><h2>Apache-2.0, matching esp_aliro_lib.</h2></div>
+  <p class="lead">Parts of this codebase — notably the pin-validation logic and the shape of the web API — are adapted from <a href="https://github.com/rednblkx/HomeKey-ESP32">HomeKey-ESP32</a> (MIT, © rednblkx). That attribution is a license condition, not a courtesy — see <a href="https://github.com/Ruhanpaco/Aliro-homekey/blob/main/NOTICE.md">NOTICE.md</a> for exactly what and where.</p>
+</section>
+
+<section class="section">
+  <div class="section-head"><div class="kicker">DISCLAIMER</div><h2>Research and hobbyist, not certified.</h2></div>
+  <div class="callout warn"><strong>Not certified by the CSA, Apple, Google, or Samsung.</strong> Aliro is a trademark of the Connectivity Standards Alliance; this project is not affiliated with or endorsed by the CSA, Espressif, Apple, Google, or Samsung. A shipping access-control product needs ecosystem provisioning, certification, a security review, and hardware validation this project hasn't done.</div>
+</section>
+
+<section class="section dark">
+  <div class="section-head"><div class="kicker">CONTRIBUTING</div><h2>A bug report is genuinely useful.</h2><p class="lead">NFC drivers, board support, wallet testing, protocol research, and documentation are all welcome. See <a href="https://github.com/Ruhanpaco/Aliro-homekey/blob/main/CONTRIBUTING.md">CONTRIBUTING.md</a> for how to set up, and <a href="https://github.com/Ruhanpaco/Aliro-homekey/blob/main/CODE_OF_CONDUCT.md">CODE_OF_CONDUCT.md</a> for how the project expects people to treat each other.</p></div>
+  <div class="actions"><a class="button primary" href="https://github.com/Ruhanpaco/Aliro-homekey">View source ↗</a><a class="button outline" href="https://github.com/Ruhanpaco/Aliro-homekey/issues">Report an issue ↗</a></div>
+</section>
+</main>
+<footer class="footer wrap">
+  <span>Aliro HomeKey · Apache-2.0 · 2026</span>
+  <a href="https://github.com/Ruhanpaco/Aliro-homekey">GitHub ↗</a>
+</footer>
+</body></html>

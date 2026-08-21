@@ -1,0 +1,82 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Aliro HomeKey hardware: supported ESP32 targets, PN532 NFC frontend, wiring, and lock output."><title>Hardware · Aliro HomeKey</title><link rel="canonical" href="https://ruhanpaco.github.io/Aliro-homekey/hardware.html"><link rel="icon" href="assets/aliro-mark.svg" type="image/svg+xml"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=DM+Mono&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="assets/site.css?v=20260821"></head><body>
+<header class="nav wrap">
+  <a class="logo" href="index.html"><img src="assets/aliro-mark.svg" alt="">ALIRO <span>HOMEKEY</span></a>
+  <nav class="navlinks">
+    <a href="index.html">Overview</a>
+    <a href="architecture.html">Architecture</a>
+    <a class="active" href="hardware.html">Hardware</a>
+    <a href="roadmap.html">Roadmap</a>
+    <a href="releases.html">Versions</a>
+    <a class="button outline" href="https://github.com/Ruhanpaco/Aliro-homekey">GitHub ↗</a>
+    <a class="button primary" href="site/index.html">Open Flasher</a>
+  </nav>
+</header>
+<main class="wrap">
+<section class="page-hero">
+  <div class="kicker">02 / HARDWARE</div>
+  <h1>What runs it, and how sure we are.</h1>
+  <p class="lead">Board support here comes in three honest tiers: hardware-tested, built-and-released-but-untested, and SDK-supported-but-no-board-work. Which tier a target is in matters more than whether it's listed at all.</p>
+</section>
+
+<section class="section">
+  <div class="section-head"><div class="kicker">BOARD SUPPORT</div><h2>Three tiers, not one list.</h2></div>
+  <div class="grid" style="grid-template-columns:1fr">
+    <article class="card">
+      <span class="status good">hardware-tested</span>
+      <h3 style="margin-top:14px">ESP32-WROOM-32</h3>
+      <p>The primary development and transaction-testing platform. Commissioned into Apple Home, ran real Aliro transactions, drove a lock output — everything under <a href="index.html">Overview</a> was verified on this exact board with a PN532 over SPI.</p>
+    </article>
+    <article class="card">
+      <span class="status warn">builds and releases, not hardware-verified</span>
+      <h3 style="margin-top:14px">ESP32-C3 · ESP32-S3</h3>
+      <p>CI builds and publishes firmware for both on every release, and both pass the OTA-slot-fit check. Pin defaults exist in <code style="background:none;padding:0">boards/</code> and <code style="background:none;padding:0">components/app_config/Kconfig</code>. Neither has been flashed to real hardware by this project — treat as unverified until someone confirms a tap actually opens a lock.</p>
+    </article>
+    <article class="card">
+      <span class="status unknown">SDK-supported, no board work here</span>
+      <h3 style="margin-top:14px">ESP32-C6 · ESP32-H2 · ESP32-P4</h3>
+      <p>Espressif's Aliro SDK targets these chips, so this project could extend to them, but no dedicated release build, partition tuning, or testing exists in this repository yet for any of them.</p>
+    </article>
+  </div>
+</section>
+
+<section class="section dark">
+  <div class="section-head"><div class="kicker">TYPICAL SETUP</div><h2>ESP32 + PN532 + a lock output.</h2></div>
+  <pre class="code">                    ┌──────────────────┐
+                    │  ESP32-WROOM-32  │
+                    └────────┬─────────┘
+                             │
+                ┌────────────┼────────────┐
+                │            │            │
+                ▼            ▼            ▼
+             PN532        Wi-Fi       Lock / Relay
+              NFC                         / LED
+                │
+                ▼
+           Mobile wallet</pre>
+  <div class="grid" style="grid-template-columns:repeat(2,1fr);margin-top:26px">
+    <article class="card"><h3>ESP32 board</h3><p>WROOM-32 or another supported target. USB for flashing and monitoring.</p></article>
+    <article class="card"><h3>PN532 module</h3><p>SPI (default) or I²C, over 4-6 wires. See wiring pins below.</p></article>
+    <article class="card"><h3>Access output</h3><p>A relay, electric strike, lock controller, or an LED for bench testing.</p></article>
+    <article class="card"><h3>Power</h3><p>3.3V logic only for the PN532 — do not feed it 5V.</p></article>
+  </div>
+</section>
+
+<section class="section">
+  <div class="section-head"><div class="kicker">DEFAULT WIRING</div><h2>PN532 over SPI, ESP32-WROOM-32.</h2><p class="lead">First-boot defaults — every pin is remappable from the web UI without a rebuild, and the device refuses wiring that doesn't exist on the target or is already assigned elsewhere.</p></div>
+  <table class="table">
+    <tr><th>PN532 pin</th><th>ESP32</th><th>ESP32-C3</th><th>ESP32-S3</th></tr>
+    <tr><td>SCK</td><td>GPIO18</td><td>GPIO4</td><td>GPIO12</td></tr>
+    <tr><td>MISO</td><td>GPIO19</td><td>GPIO5</td><td>GPIO13</td></tr>
+    <tr><td>MOSI</td><td>GPIO23</td><td>GPIO6</td><td>GPIO11</td></tr>
+    <tr><td>SS / CS</td><td>GPIO5</td><td>GPIO7</td><td>GPIO10</td></tr>
+    <tr><td>VCC</td><td colspan="3">3.3V — never 5V</td></tr>
+    <tr><td>GND</td><td colspan="3">GND</td></tr>
+  </table>
+  <p class="muted" style="font-size:13px;margin-top:16px">Some PN532 breakout boards reuse the I²C pin labels for SPI too — the pin silkscreened <code style="background:none;padding:0">SDA</code> is actually <code style="background:none;padding:0">SS/CS</code>, and <code style="background:none;padding:0">SCL</code> is actually <code style="background:none;padding:0">SCK</code>. Wire by position, not by label, if that's what your board has.</p>
+</section>
+</main>
+<footer class="footer wrap">
+  <span>Wiring defaults from <code style="background:none;padding:0">boards/</code> and <code style="background:none;padding:0">components/app_config/Kconfig</code></span>
+  <a href="https://github.com/Ruhanpaco/Aliro-homekey/tree/main/boards">Source ↗</a>
+</footer>
+</body></html>

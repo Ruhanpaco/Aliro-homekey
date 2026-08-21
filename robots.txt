@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://ruhanpaco.github.io/Aliro-homekey/sitemap.xml
+# Pages refresh: 2026-08-21

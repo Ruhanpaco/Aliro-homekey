@@ -1,0 +1,64 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Aliro HomeKey release history: v0.1 through v0.5."><title>Versions · Aliro HomeKey</title><link rel="canonical" href="https://ruhanpaco.github.io/Aliro-homekey/releases.html"><link rel="icon" href="assets/aliro-mark.svg" type="image/svg+xml"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=DM+Mono&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="assets/site.css?v=20260821"></head><body>
+<header class="nav wrap">
+  <a class="logo" href="index.html"><img src="assets/aliro-mark.svg" alt="">ALIRO <span>HOMEKEY</span></a>
+  <nav class="navlinks">
+    <a href="index.html">Overview</a>
+    <a href="architecture.html">Architecture</a>
+    <a href="hardware.html">Hardware</a>
+    <a href="roadmap.html">Roadmap</a>
+    <a class="active" href="releases.html">Versions</a>
+    <a class="button outline" href="https://github.com/Ruhanpaco/Aliro-homekey">GitHub ↗</a>
+    <a class="button primary" href="site/index.html">Open Flasher</a>
+  </nav>
+</header>
+<main class="wrap">
+<section class="page-hero">
+  <div class="kicker">06 / VERSIONS</div>
+  <h1>Five betas, one working reader.</h1>
+  <p class="lead">Every release is on <a href="https://github.com/Ruhanpaco/Aliro-homekey/releases">GitHub</a> with full notes and firmware for esp32, esp32c3, and esp32s3. This page is the short version.</p>
+</section>
+
+<section class="section">
+  <div class="timeline">
+    <article>
+      <small>2026-08-20 · latest</small>
+      <h3>v0.5 [beta]</h3>
+      <p>Google Home / SmartThings now show real lock activity history instead of unattributed state changes — unlock/lock operations report the correct Matter operation source (Aliro tap, auto relock, or remote command). Also the release that fixed a two-day CI breakage: the build container had floated onto IDF 6, which dropped a component this firmware needs.</p>
+    </article>
+    <article>
+      <small>2026-08-16</small>
+      <h3>v0.4 [beta]</h3>
+      <p><strong>The first build that reads a phone.</strong> An iPhone carrying an Aliro credential provisioned by Apple Home opened the lock over NFC — a fast transaction in 569 ms against a stored key, and a standard one running the full handshake. The PN532 driver was rewritten where it was wrong, and the Matter side was finished off.</p>
+    </article>
+    <article>
+      <small>2026-08-15</small>
+      <h3>v0.3 [beta]</h3>
+      <p>Merged a Matter Door Lock endpoint into the same image that already carried the web UI, setup portal, and OTA — one firmware, not two. Landed the first real NFC frontend. Flashed and booted on an ESP32-WROOM-32, but a phone hadn't opened anything yet.</p>
+    </article>
+    <article>
+      <small>2026-08-14</small>
+      <h3>v0.2 [beta]</h3>
+      <p>The first release that had actually run on hardware — v0.1 was written blind. Boots on its own, joins Wi-Fi through a setup portal, and updates itself over the air with a real rollback: a build that panics early or can't serve its own UI gets put back automatically at the next reset.</p>
+    </article>
+    <article>
+      <small>2026-08-14</small>
+      <h3>v0.1 [beta] — superseded</h3>
+      <p>Compiled for both targets and was published without ever having run on real hardware. It boot-looped on first power-up and its web UI couldn't load its own configuration. Both bugs were fixed in v0.2 the same day. Kept for history — don't flash it.</p>
+    </article>
+  </div>
+</section>
+
+<section class="section dark">
+  <div class="section-head"><div class="kicker">GET A BUILD</div><h2>Three ways to get firmware on a board.</h2></div>
+  <div class="actions">
+    <a class="button primary" href="https://github.com/Ruhanpaco/Aliro-homekey/releases">Browse releases ↗</a>
+    <a class="button outline" href="first-test.html">Flashing instructions</a>
+    <a class="button outline" href="site/index.html">Browser flasher</a>
+  </div>
+</section>
+</main>
+<footer class="footer wrap">
+  <span>Full release notes on GitHub</span>
+  <a href="https://github.com/Ruhanpaco/Aliro-homekey/releases">Releases ↗</a>
+</footer>
+</body></html>
