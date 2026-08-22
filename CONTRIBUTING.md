@@ -109,6 +109,33 @@ python3 tools/build_ui_preview.py
 4. **Open the PR** describing what changed and why. Logs and serial output are
    welcome — they are usually the fastest way to show a thing works.
 
+## Reporting and fixing a bug
+
+This project has been burned before by fixing the wrong thing: a fix built on
+a guess instead of a real log, shipped, then found broken by the next report.
+So bugs go through the same order every time, including when the report comes
+up in conversation rather than as a GitHub issue:
+
+1. **Gather full repro information before diagnosing anything.** Board and
+   NFC frontend, firmware version or commit, exact steps, and — for anything
+   Matter, Wi-Fi, or NFC-timing related — a fresh boot log that actually
+   covers the failure, not a description of it. A log from a different bug is
+   worse than no log; it looks like evidence and isn't.
+2. **File a GitHub issue** with the symptom and whatever's been diagnosed so
+   far from that evidence, even if the fix is already obvious. This is what
+   keeps a record of what actually broke and why, separate from the fix
+   itself — useful when a "fixed" bug comes back, which has happened here
+   more than once (see the ECP beacon in the git log).
+3. **Fix it**, with the commit or PR referencing the issue (`Fixes #N` /
+   `Closes #N`) so the two stay linked and the issue closes automatically
+   when the fix lands on `main`.
+
+Skipping straight to a fix without an issue is fine for something trivial and
+self-contained (a typo, an off-by-one with no behavioral ambiguity). Anything
+where the root cause took real investigation gets the issue, so the next
+person — human or AI — hitting something similar can find it instead of
+re-diagnosing from nothing.
+
 ## Coding standards
 
 - **C for the components, C++ only where a dependency forces it.** The Matter
