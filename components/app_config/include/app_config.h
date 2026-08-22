@@ -117,6 +117,22 @@ typedef struct {
     char password[65];
 } web_config_t;
 
+/**
+ * @brief Status LED and RTTTL buzzer. Both optional and off unless a GPIO is
+ * configured; see components/feedback_io.
+ */
+typedef struct {
+    bool led_enabled;
+    int8_t led_gpio;
+    bool led_active_low;
+
+    bool buzzer_enabled;
+    int8_t buzzer_gpio;
+    uint8_t buzzer_gain; /*!< 0-100, scales the PWM duty cycle */
+    char tune_granted[192]; /*!< RTTTL string played on a granted tap */
+    char tune_denied[192];  /*!< RTTTL string played on a denied tap */
+} feedback_config_t;
+
 typedef struct {
     char device_name[32];
     char group_id_hex[33]; /*!< 32 hex chars, the 16-byte reader group identifier */
@@ -125,6 +141,7 @@ typedef struct {
     net_config_t net;
     mqtt_config_t mqtt;
     web_config_t web;
+    feedback_config_t feedback;
 } app_config_t;
 
 /**

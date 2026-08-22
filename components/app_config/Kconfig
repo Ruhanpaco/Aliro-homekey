@@ -106,6 +106,25 @@ config ALIRO_LOCK_UNLOCK_MS
 
 endmenu
 
+menu "Feedback outputs"
+
+config ALIRO_FEEDBACK_LED_GPIO
+    int "Status LED GPIO (-1 if unused)"
+    default -1
+    help
+        Mirrors the current lock state. Off by default -- set a pin and
+        enable it from the web UI's Feedback page, no rebuild required.
+
+config ALIRO_FEEDBACK_BUZZER_GPIO
+    int "Buzzer GPIO (-1 if unused)"
+    default -1
+    help
+        Drives a piezo buzzer via LEDC, playing a configurable RTTTL tune on
+        a granted or denied tap. Off by default; enable and set tunes from
+        the web UI.
+
+endmenu
+
 menu "Network"
 
 config ALIRO_AP_PASSWORD

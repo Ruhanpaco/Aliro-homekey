@@ -12,6 +12,7 @@
 #include "access_control.h"
 #include "aliro_reader.h"
 #include "app_config.h"
+#include "feedback_io.h"
 #include "matter_lock.h"
 #include "mqtt_manager.h"
 #include "net_manager.h"
@@ -314,6 +315,7 @@ void app_main(void)
      * `status`, and the device still comes up.
      */
     ESP_ERROR_CHECK_WITHOUT_ABORT(access_control_init(&cfg->lock));
+    ESP_ERROR_CHECK_WITHOUT_ABORT(feedback_io_start(&cfg->feedback));
 
     if (aliro_reader_sdk_init(CONFIG_ALIRO_READER_FAST_TRANSACTION_SLOTS) != ESP_OK) {
         ESP_LOGE(k_tag, "Aliro SDK did not initialize; the reader is disabled this boot");

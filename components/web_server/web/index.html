@@ -408,6 +408,15 @@ main{padding:0 1.5rem 1.5rem;height:100%;overflow-y:auto;background:var(--color-
             </a>
           </li>
           <li class="my-1" role="menuitem">
+            <a href="#/feedback" data-page="feedback" class="text-lg flex items-center">
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none"
+                   viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round"
+                      d="M15 17h5l-1.4-1.4a2 2 0 01-.6-1.4V11a6 6 0 10-12 0v3.2a2 2 0 01-.6 1.4L4 17h5m6 0a3 3 0 11-6 0m6 0H9"/>
+              </svg>Feedback
+            </a>
+          </li>
+          <li class="my-1" role="menuitem">
             <a href="#/ota" data-page="ota" class="text-lg flex items-center">
               <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none"
                    viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
@@ -673,6 +682,82 @@ main{padding:0 1.5rem 1.5rem;height:100%;overflow-y:auto;background:var(--color-
                   </label>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- -------------------------------------------------- Feedback -->
+        <div class="page" data-page="feedback">
+          <div class="page-head">
+            <h1>Feedback</h1>
+            <p>An optional status LED and buzzer, driven by the same tap and lock events MQTT publishes.</p>
+          </div>
+
+          <div class="card">
+            <div class="card-body space-y-6">
+                <div>
+                  <h3 class="card-title">Status LED</h3>
+                  <p class="caption">Mirrors the current lock state: on while unlocked, off while locked.</p>
+                </div>
+              <div class="form-control">
+                <label class="label" for="led_enabled">
+                  <span class="label-text">Enable status LED</span>
+                  <input id="led_enabled" name="feedback.led_enabled" type="checkbox" class="toggle">
+                </label>
+              </div>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="form-control">
+                  <label class="label" for="led_gpio"><span class="label-text text-sm">GPIO</span></label>
+                  <select id="led_gpio" name="feedback.led_gpio" data-pin="out"
+                          class="select select-sm input-bordered w-full"></select>
+                </div>
+                <div class="form-control">
+                  <label class="label" for="led_active_low">
+                    <span class="label-text text-sm">Active low</span>
+                    <input id="led_active_low" name="feedback.led_active_low" type="checkbox" class="toggle">
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card mt-4">
+            <div class="card-body space-y-6">
+                <div>
+                  <h3 class="card-title">Buzzer</h3>
+                  <p class="caption">Plays an RTTTL tune on a granted or denied tap, on its own task -- it never
+                  holds up the next one.</p>
+                </div>
+              <div class="form-control">
+                <label class="label" for="buzzer_enabled">
+                  <span class="label-text">Enable buzzer</span>
+                  <input id="buzzer_enabled" name="feedback.buzzer_enabled" type="checkbox" class="toggle">
+                </label>
+              </div>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="form-control">
+                  <label class="label" for="buzzer_gpio"><span class="label-text text-sm">GPIO</span></label>
+                  <select id="buzzer_gpio" name="feedback.buzzer_gpio" data-pin="out"
+                          class="select select-sm input-bordered w-full"></select>
+                </div>
+                <div class="form-control">
+                  <label class="label" for="buzzer_gain"><span class="label-text text-sm">Gain (%)</span></label>
+                  <input id="buzzer_gain" name="feedback.buzzer_gain" type="number" min="0" max="100" step="5"
+                         class="input input-sm input-bordered w-full">
+                </div>
+              </div>
+              <div class="form-control">
+                <label class="label" for="tune_granted"><span class="label-text text-sm">Granted tune (RTTTL)</span></label>
+                <input id="tune_granted" name="feedback.tune_granted" type="text" maxlength="191"
+                       placeholder="granted:d=8,o=6,b=180:c,e" class="input input-sm input-bordered w-full font-mono">
+              </div>
+              <div class="form-control">
+                <label class="label" for="tune_denied"><span class="label-text text-sm">Denied tune (RTTTL)</span></label>
+                <input id="tune_denied" name="feedback.tune_denied" type="text" maxlength="191"
+                       placeholder="denied:d=4,o=4,b=120:a" class="input input-sm input-bordered w-full font-mono">
+              </div>
+              <p class="text-xs text-muted">Any RTTTL string works -- the same format used by countless ringtone
+              archives and ESPHome's <code>rtttl</code> platform. Leave a tune blank to stay silent for that event.</p>
             </div>
           </div>
         </div>
@@ -1072,7 +1157,7 @@ main{padding:0 1.5rem 1.5rem;height:100%;overflow-y:auto;background:var(--color-
 "use strict";
 const $ = (id) => document.getElementById(id);
 const PAGES = {info:"Info", mqtt:"MQTT", actions:"Actions", misc:"System",
-               ota:"OTA Update"};
+               feedback:"Feedback", ota:"OTA Update"};
 let caps = null;
 let ws = null, wsReconnectTimer = null, wsBackoffMs = 1500;
 /* The last full /api/status. The WebSocket carries deltas, and rendering needs

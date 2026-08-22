@@ -142,6 +142,18 @@ void app_config_defaults(app_config_t *out)
     out->web.auth_enabled = false;
     snprintf(out->web.username, sizeof(out->web.username), "admin");
     out->web.password[0] = '\0';
+
+    out->feedback.led_enabled = false;
+    out->feedback.led_gpio = CONFIG_ALIRO_FEEDBACK_LED_GPIO;
+    out->feedback.led_active_low = false;
+    out->feedback.buzzer_enabled = false;
+    out->feedback.buzzer_gpio = CONFIG_ALIRO_FEEDBACK_BUZZER_GPIO;
+    out->feedback.buzzer_gain = 80;
+    /* Two short, distinct chirps -- a rising major third for a grant, a
+     * single low buzz for a denial -- so both are useful with the box
+     * closed and nobody reading a screen. */
+    snprintf(out->feedback.tune_granted, sizeof(out->feedback.tune_granted), "granted:d=8,o=6,b=180:c,e");
+    snprintf(out->feedback.tune_denied, sizeof(out->feedback.tune_denied), "denied:d=4,o=4,b=120:a");
 }
 
 void app_config_mqtt_topic(const mqtt_config_t *cfg, const char *suffix, char *out, size_t out_len)
@@ -212,7 +224,7 @@ esp_err_t app_config_validate(const app_config_t *cfg, char *err_msg, size_t err
     }
 
     /* Collect every pin in use so two functions cannot claim the same one. */
-    pin_use_t used[8];
+    pin_use_t used[10];
     size_t used_count = 0;
     used[used_count++] = (pin_use_t){cfg->lock.gpio, "lock output"};
 
@@ -266,6 +278,24 @@ esp_err_t app_config_validate(const app_config_t *cfg, char *err_msg, size_t err
     }
     if (cfg->nfc.rst_pin != APP_CFG_PIN_UNSET) {
         used[used_count++] = (pin_use_t){cfg->nfc.rst_pin, "NFC reset"};
+    }
+
+    if (cfg->feedback.led_enabled) {
+        if (cfg->feedback.led_gpio == APP_CFG_PIN_UNSET) {
+            FAIL("status LED is enabled but no GPIO is set");
+        }
+        CHECK_PIN(cfg->feedback.led_gpio, "status LED", true);
+        used[used_count++] = (pin_use_t){cfg->feedback.led_gpio, "status LED"};
+    }
+    if (cfg->feedback.buzzer_enabled) {
+        if (cfg->feedback.buzzer_gpio == APP_CFG_PIN_UNSET) {
+            FAIL("buzzer is enabled but no GPIO is set");
+        }
+        CHECK_PIN(cfg->feedback.buzzer_gpio, "buzzer", true);
+        used[used_count++] = (pin_use_t){cfg->feedback.buzzer_gpio, "buzzer"};
+        if (cfg->feedback.buzzer_gain > 100) {
+            FAIL("buzzer gain must be between 0 and 100");
+        }
     }
 
     for (size_t i = 0; i < used_count; i++) {
@@ -392,6 +422,16 @@ char *app_config_to_json(const app_config_t *cfg, bool include_secrets)
     cJSON_AddStringToObject(web, "username", cfg->web.username);
     cJSON_AddStringToObject(web, "password", include_secrets ? cfg->web.password : "");
     cJSON_AddBoolToObject(web, "password_set", cfg->web.password[0] != '\0');
+
+    cJSON *feedback = cJSON_AddObjectToObject(root, "feedback");
+    cJSON_AddBoolToObject(feedback, "led_enabled", cfg->feedback.led_enabled);
+    cJSON_AddNumberToObject(feedback, "led_gpio", cfg->feedback.led_gpio);
+    cJSON_AddBoolToObject(feedback, "led_active_low", cfg->feedback.led_active_low);
+    cJSON_AddBoolToObject(feedback, "buzzer_enabled", cfg->feedback.buzzer_enabled);
+    cJSON_AddNumberToObject(feedback, "buzzer_gpio", cfg->feedback.buzzer_gpio);
+    cJSON_AddNumberToObject(feedback, "buzzer_gain", cfg->feedback.buzzer_gain);
+    cJSON_AddStringToObject(feedback, "tune_granted", cfg->feedback.tune_granted);
+    cJSON_AddStringToObject(feedback, "tune_denied", cfg->feedback.tune_denied);
 
     char *out = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
@@ -524,6 +564,22 @@ esp_err_t app_config_from_json(const char *json, app_config_t *cfg, char *err_ms
         int port = cfg->mqtt.port;
         json_get_int(mqtt, "port", &port);
         cfg->mqtt.port = (port < 0 || port > 65535) ? 0 : (uint16_t)port;
+    }
+
+    const cJSON *feedback = cJSON_GetObjectItemCaseSensitive(root, "feedback");
+    if (cJSON_IsObject(feedback)) {
+        json_get_bool(feedback, "led_enabled", &cfg->feedback.led_enabled);
+        json_get_i8(feedback, "led_gpio", &cfg->feedback.led_gpio);
+        json_get_bool(feedback, "led_active_low", &cfg->feedback.led_active_low);
+        json_get_bool(feedback, "buzzer_enabled", &cfg->feedback.buzzer_enabled);
+        json_get_i8(feedback, "buzzer_gpio", &cfg->feedback.buzzer_gpio);
+        int gain = cfg->feedback.buzzer_gain;
+        json_get_int(feedback, "buzzer_gain", &gain);
+        cfg->feedback.buzzer_gain = (uint8_t)(gain < 0 ? 0 : gain);
+        json_get_string(feedback, "tune_granted", cfg->feedback.tune_granted, sizeof(cfg->feedback.tune_granted),
+                        false);
+        json_get_string(feedback, "tune_denied", cfg->feedback.tune_denied, sizeof(cfg->feedback.tune_denied),
+                        false);
     }
 
     cJSON_Delete(root);
