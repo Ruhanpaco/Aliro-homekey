@@ -91,6 +91,18 @@ flashing anything:
 python3 tools/build_ui_preview.py
 ```
 
+Long serial captures can be summarized before attaching them to an issue:
+
+```bash
+python3 tools/analyze_tap_log.py aliro.log
+python3 tools/analyze_tap_log.py aliro.log --json
+```
+
+The analyzer reports transaction success/failure counts, fast vs standard
+transactions, timing, APDU retries, terminal transaction errors and PN532
+warning/error lines. It uses only the Python standard library and never modifies
+the log.
+
 ### Making changes
 
 1. **Create a branch**:
