@@ -48,10 +48,17 @@ def declared_config_symbols() -> dict[str, pathlib.Path]:
     return declared
 
 
+def c_code_only(source: str) -> str:
+    """Mask C comments and literals after joining continued lines."""
+    source = re.sub(r"\\\r?\n", "", source)
+    tokens = re.compile(r'''"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|//[^\n]*|/\*.*?\*/''', re.S)
+    return tokens.sub(" ", source)
+
+
 def used_config_symbols() -> dict[str, set[str]]:
     used: dict[str, set[str]] = {}
     for path in c_sources():
-        for name in re.findall(r"\bCONFIG_[A-Z0-9_]+", path.read_text()):
+        for name in re.findall(r"\bCONFIG_[A-Z0-9_]+", c_code_only(path.read_text())):
             used.setdefault(name, set()).add(str(path.relative_to(ROOT)))
     return used
 

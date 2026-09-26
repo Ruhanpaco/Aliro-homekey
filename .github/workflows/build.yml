@@ -12,6 +12,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Static consistency checks
         run: ./tools/check_consistency.py
+      - name: Consistency checker regression tests
+        run: python3 -m unittest tools/test_check_consistency.py
 
 
 
