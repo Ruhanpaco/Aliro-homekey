@@ -26,6 +26,8 @@ class ConfigSymbolTests(unittest.TestCase):
             source = component / "example.c"
             source.write_text(
                 "// CONFIG_COMMENT_LINE\n"
+                "// continued comment \\\n"
+                "CONFIG_CONTINUED_COMMENT\n"
                 "/* CONFIG_COMMENT_BLOCK */\n"
                 "const char *url = \"https://example.org/CONFIG_IN_STRING\";\n"
                 "const char *marker = \"/* CONFIG_IN_QUOTED_COMMENT */\";\n"
@@ -42,6 +44,7 @@ class ConfigSymbolTests(unittest.TestCase):
             self.assertEqual(result.returncode, 1)
             self.assertIn("CONFIG_REAL used in components/example/example.c", result.stdout)
             self.assertNotIn("CONFIG_COMMENT_LINE", result.stdout)
+            self.assertNotIn("CONFIG_CONTINUED_COMMENT", result.stdout)
             self.assertNotIn("CONFIG_COMMENT_BLOCK", result.stdout)
             self.assertNotIn("CONFIG_IN_STRING", result.stdout)
             self.assertNotIn("CONFIG_IN_QUOTED_COMMENT", result.stdout)
