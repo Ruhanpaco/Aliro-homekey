@@ -49,7 +49,8 @@ def declared_config_symbols() -> dict[str, pathlib.Path]:
 
 
 def c_code_only(source: str) -> str:
-    """Mask C comments and literals before scanning for config identifiers."""
+    """Mask C comments and literals after joining continued lines."""
+    source = re.sub(r"\\\r?\n", "", source)
     tokens = re.compile(r'''"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|//[^\n]*|/\*.*?\*/''', re.S)
     return tokens.sub(" ", source)
 
